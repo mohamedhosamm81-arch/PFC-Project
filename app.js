@@ -411,7 +411,7 @@ function sessionToggle() {
     rebalanceWaiting(user.dept);
     toast(lateMinutes ? `Session started; recorded ${lateMinutes} minutes late.` : 'Session started on time.');
   }
-  save(); render();
+  save(); shell(); render();
 }
 function issueTicket(service) {
   const code = Number(state.nextCode++);
