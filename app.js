@@ -38,7 +38,7 @@ function createSeed() {
     { code: 245, service: 'CMO', branch: 'CMO', status: 'Done', late: false, created: stamp('08:02', d), assignedTo: 'DOC-101', history: [{ at: stamp('08:02', d), event: 'Issued', by: 'Reception Desk', destination: 'CMO' }, { at: stamp('08:25', d), event: 'Done', by: 'Dr. Layla Hassan', destination: 'CMO' }] },
     { code: 246, service: 'CMO', branch: 'CMO', status: 'Done', late: false, created: stamp('08:10', d), assignedTo: 'DOC-102', history: [{ at: stamp('08:10', d), event: 'Issued', by: 'Reception Desk', destination: 'CMO' }, { at: stamp('08:36', d), event: 'Done', by: 'Dr. Omar Nasser', destination: 'CMO' }] },
     { code: 247, service: 'CMO', branch: 'CMO', status: 'Serving', late: false, created: stamp('08:18', d), assignedTo: 'DOC-101', history: [{ at: stamp('08:18', d), event: 'Issued', by: 'Reception Desk', destination: 'CMO' }, { at: stamp('08:44', d), event: 'Called', by: 'Dr. Layla Hassan', destination: 'CMO' }] },
-    { code: 248, service: 'CMO', branch: 'CMO', status: 'Waiting', late: false, created: stamp('08:29', d), assignedTo: 'DOC-102', history: [{ at: stamp('08:29', d), event: 'Issued', by: 'Reception Desk', destination: 'CMO' }] },
+    { code: 248, service: 'CMO', branch: 'CMO', status: 'Waiting', late: false, created: stamp('08:29', d), assignedTo: null, history: [{ at: stamp('08:29', d), event: 'Issued', by: 'Reception Desk', destination: 'CMO' }] },
     { code: 249, service: 'CMO', branch: 'CMO', status: 'Waiting', late: true, created: stamp('08:34', d), assignedTo: null, history: [{ at: stamp('08:34', d), event: 'Issued', by: 'Reception Desk', destination: 'CMO' }] },
     { code: 201, service: 'Pharmacy', branch: 'Pharmacy', status: 'Done', late: false, created: stamp('08:05', d), assignedTo: 'EHA-2077', history: [{ at: stamp('08:05', d), event: 'Issued', by: 'Reception Desk', destination: 'Pharmacy' }, { at: stamp('08:31', d), event: 'Done', by: 'Sara Youssef', destination: 'Pharmacy' }] },
     { code: 202, service: 'Pharmacy', branch: 'Pharmacy', status: 'Serving', late: false, created: stamp('08:38', d), assignedTo: 'EHA-2077', history: [{ at: stamp('08:38', d), event: 'Issued', by: 'Reception Desk', destination: 'Pharmacy' }, { at: stamp('08:49', d), event: 'Called', by: 'Sara Youssef', destination: 'Pharmacy' }] },
@@ -73,11 +73,12 @@ function normalizeState(saved) {
   const fresh = createSeed();
   const merged = { ...fresh, ...saved, version: 3 };
   merged.users = (saved.users || fresh.users).map(user => ({ availability: 'available', org: ORG_DEFAULT, ...user }));
-  merged.patients = (saved.patients || fresh.patients).map(patient => ({ late: false, history: [], assignedTo: null, ...patient }));
+  merged.patients = (saved.patients || fresh.patients).map(patient => ({ late: false, history: [], assignedTo: null, org: ORG_DEFAULT, ...patient }));
   merged.sessions = saved.sessions || fresh.sessions;
   merged.actions = saved.actions || fresh.actions;
   merged.routing = { ...fresh.routing, ...(saved.routing || {}) };
   merged.nextCode = Math.min(999, Math.max(1, Math.floor(Number(saved.nextCode) || 1)));
+  merged.patients.forEach(patient => { if (patient.branch === 'CMO' && patient.status === 'Waiting') patient.assignedTo = null; });
   return merged;
 }
 
@@ -205,16 +206,17 @@ function stationConsole() {
   if (!session && user.role !== 'Manager' && user.dept !== 'Administration') {
     return `<section class="bg-white rounded-3xl border border-slate-100 shadow-soft p-8 text-center max-w-2xl mx-auto my-12"><div class="h-20 w-20 rounded-3xl bg-teal/10 text-teal flex items-center justify-center mx-auto mb-6">${icon('play', 'h-10 w-10')}</div><h2 class="text-3xl font-bold">Start your session</h2><p class="text-slate-500 mt-4 text-lg">You must start a session to begin receiving patients at your station. Your start time and lateness will be recorded.</p><button data-action="session-toggle" class="mt-8 rounded-2xl bg-teal text-white px-8 py-4 text-lg font-bold hover:bg-teal-700 transition shadow-soft">Start working now ${icon('arrow-right')}</button></section>`;
   }
-  const myPatients = state.patients.filter(patient => patient.assignedTo === user.id && ['Waiting', 'Serving'].includes(patient.status));
+  const userOrg = user.org || ORG_DEFAULT;
+  const myPatients = state.patients.filter(patient => user.dept === 'CMO' ? patient.assignedTo === user.id && patient.status === 'Serving' : patient.assignedTo === user.id && ['Waiting', 'Serving'].includes(patient.status));
   const serving = myPatients.find(patient => patient.status === 'Serving');
-  const waiting = myPatients.filter(patient => patient.status === 'Waiting').length;
+  const waiting = user.dept === 'CMO' ? state.patients.filter(patient => patient.branch === 'CMO' && (patient.org || ORG_DEFAULT) === userOrg && patient.status === 'Waiting' && !patient.assignedTo).length : myPatients.filter(patient => patient.status === 'Waiting').length;
   const canProcess = user.role !== 'Manager' && user.dept !== 'Administration';
   if (!canProcess) return `<div class="notice-card border border-slate-200 bg-white rounded-2xl p-5 mb-5"><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl bg-teal/10 text-teal flex items-center justify-center">${icon('shield-check')}</div><div><b>Manager control center</b><p class="text-sm text-slate-500 mt-1">Use the admin dashboard and reports to supervise every destination and employee.</p></div></div></div>`;
-  return `<section class="bg-white rounded-2xl border border-teal-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex flex-col xl:flex-row xl:items-center justify-between gap-5"><div><div class="flex items-center gap-2 text-teal text-sm font-semibold">${icon('scan-line')} ${user.dept === 'CMO' ? 'Clinic queue command center' : `${esc(user.dept)} command center`}</div><h2 class="text-xl font-bold mt-2">${serving ? `Now serving ticket #${serving.code}` : 'Ready for the next patient'}</h2><p class="text-sm text-slate-500 mt-1">Press <b>Next patient</b> to call the next ticket. Use Done, Late, or Transfer to update the current journey.</p></div><div class="flex items-center gap-2">${availabilityPill(user)}<span class="rounded-xl bg-mist border border-slate-100 px-4 py-2.5 text-sm text-slate-600">${waiting} waiting for you</span></div></div>${serving ? `<div class="mt-5 rounded-2xl bg-teal/[.06] border border-teal/10 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"><div class="flex items-center gap-4"><div class="ticket-number ticket-number-sm">${serving.code}</div><div><div class="font-bold">Current patient</div><div class="text-sm text-slate-500">Issued ${fmt(serving.created)} · ${serving.late ? 'Marked late' : 'On time'}</div></div></div><div class="flex flex-wrap gap-2">${btn('Done', `patient-done-${serving.code}`, 'bg-emerald-600 text-white hover:bg-emerald-700', 'check')}${btn('Late', `patient-late-${serving.code}`, 'bg-yellow-400 text-ink hover:bg-yellow-500', 'clock-3')}${btn('Transfer', `patient-transfer-${serving.code}`, 'bg-white text-ink border border-slate-200 hover:border-teal', 'arrow-right-left')}${btn('Pause queue', 'availability-toggle', 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300', 'pause')}</div></div>` : `<div class="mt-5 flex flex-col sm:flex-row gap-3"><button data-action="next-patient" class="rounded-xl bg-teal text-white px-5 py-3.5 font-semibold hover:bg-teal-700 transition">Next patient ${icon('arrow-right')}</button>${btn('Pause queue', 'availability-toggle', 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300', 'pause')}<div class="text-sm text-slate-500 flex items-center gap-2 px-2">${icon('info')} ${user.availability === 'unavailable' ? 'Set yourself available to receive patients.' : 'No patient is currently assigned.'}</div></div>`}</section>`;
+  return `<section class="bg-white rounded-2xl border border-teal-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex flex-col xl:flex-row xl:items-center justify-between gap-5"><div><div class="flex items-center gap-2 text-teal text-sm font-semibold">${icon('scan-line')} ${user.dept === 'CMO' ? 'Clinic shared queue command center' : `${esc(user.dept)} command center`}</div><h2 class="text-xl font-bold mt-2">${serving ? `Now serving ticket #${serving.code}` : 'Ready for the next patient'}</h2><p class="text-sm text-slate-500 mt-1">Press <b>Next patient</b> to take the oldest eligible ticket. In Clinic, all three available employees draw from one shared organization queue.</p></div><div class="flex items-center gap-2">${availabilityPill(user)}<span class="rounded-xl bg-mist border border-slate-100 px-4 py-2.5 text-sm text-slate-600">${waiting} ${user.dept === 'CMO' ? 'in shared Clinic queue' : 'waiting for you'}</span></div></div>${serving ? `<div class="mt-5 rounded-2xl bg-teal/[.06] border border-teal/10 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"><div class="flex items-center gap-4"><div class="ticket-number ticket-number-sm">${serving.code}</div><div><div class="font-bold">Current patient</div><div class="text-sm text-slate-500">Issued ${fmt(serving.created)} · ${serving.late ? 'Marked late' : 'On time'}</div></div></div><div class="flex flex-wrap gap-2">${btn('Done', `patient-done-${serving.code}`, 'bg-emerald-600 text-white hover:bg-emerald-700', 'check')}${btn('Late', `patient-late-${serving.code}`, 'bg-yellow-400 text-ink hover:bg-yellow-500', 'clock-3')}${btn('Transfer', `patient-transfer-${serving.code}`, 'bg-white text-ink border border-slate-200 hover:border-teal', 'arrow-right-left')}${btn('Pause queue', 'availability-toggle', 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300', 'pause')}</div></div>` : `<div class="mt-5 flex flex-col sm:flex-row gap-3"><button data-action="next-patient" class="rounded-xl bg-teal text-white px-5 py-3.5 font-semibold hover:bg-teal-700 transition">Next patient ${icon('arrow-right')}</button>${btn('Pause queue', 'availability-toggle', 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300', 'pause')}<div class="text-sm text-slate-500 flex items-center gap-2 px-2">${icon('info')} ${user.availability === 'unavailable' ? 'Set yourself available to receive patients.' : 'No patient is currently assigned.'}</div></div>`}</section>`;
 }
 function overview() {
   const user = currentUser();
-  const scope = user.role === 'Manager' ? state.patients : state.patients.filter(patient => patient.branch === user.dept || patient.assignedTo === user.id);
+  const scope = user.role === 'Manager' ? state.patients : state.patients.filter(patient => (patient.org || ORG_DEFAULT) === (user.org || ORG_DEFAULT) && (patient.branch === user.dept || patient.assignedTo === user.id));
   const active = scope.filter(patient => patient.status !== 'Done');
   const done = scope.filter(patient => patient.status === 'Done' && isToday(patient.created)).length;
   const late = scope.filter(patient => patient.late && patient.status !== 'Done').length;
@@ -253,23 +255,28 @@ function kiosk() {
 }
 function ticketRow(patient, showAssignment = true) {
   const assigned = userById(patient.assignedTo);
-  return `<div class="patient-row flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 border-b border-slate-100 last:border-0" data-search="${esc(`${patient.code} ${patient.branch} ${patient.status} ${assigned?.name || ''}`.toLowerCase())}"><div class="flex items-center gap-4"><div class="ticket-number ticket-number-xs">${patient.code}</div><div><div class="font-semibold">${esc(patient.branch)}</div><div class="text-xs text-slate-400 mt-1">Issued ${fmt(patient.created)}${patient.late ? ' · marked late' : ''}</div></div></div><div class="flex items-center gap-3 flex-wrap">${showAssignment ? `<span class="text-xs text-slate-500">${assigned ? `Assigned to ${esc(assigned.name)}` : 'Awaiting assignment'}</span>` : ''}${statusPill(patient.status)}${patient.status !== 'Done' && currentUser().role !== 'Manager' ? `<button data-patient-view="${patient.code}" class="text-teal text-sm font-semibold">Open ${icon('arrow-up-right')}</button>` : ''}</div></div>`;
+  const label = destination(patient.branch).label;
+  const shared = patient.branch === 'CMO' && !assigned;
+  return `<div class="patient-row flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 border-b border-slate-100 last:border-0" data-search="${esc(`${patient.code} ${label} ${patient.branch} ${patient.status} ${assigned?.name || ''}`.toLowerCase())}"><div class="flex items-center gap-4"><div class="ticket-number ticket-number-xs">${patient.code}</div><div><div class="font-semibold">${esc(label)}</div><div class="text-xs text-slate-400 mt-1">${shared ? 'Shared Clinic queue' : assigned ? `Assigned to ${esc(assigned.name)}` : 'Awaiting assignment'} · Issued ${fmt(patient.created)}${patient.late ? ' · marked late' : ''}</div></div></div><div class="flex items-center gap-3 flex-wrap">${showAssignment && !shared ? `<span class="text-xs text-slate-500">${assigned ? `Assigned to ${esc(assigned.name)}` : 'Awaiting assignment'}</span>` : ''}${statusPill(patient.status)}${patient.status !== 'Done' && currentUser().role !== 'Manager' ? `<button data-patient-view="${patient.code}" class="text-teal text-sm font-semibold">Open ${icon('arrow-up-right')}</button>` : ''}</div></div>`;
 }
 function queues() {
   const user = currentUser();
   const visible = user.role === 'Manager' ? BRANCHES : [user.dept];
+  const userOrg = user.org || ORG_DEFAULT;
   const branches = visible.map(branch => {
     const item = destination(branch);
-    const patients = state.patients.filter(patient => patient.branch === branch && patient.status !== 'Done').sort((a, b) => (a.status === 'Serving' ? -1 : 1) - (b.status === 'Serving' ? -1 : 1) || new Date(a.created) - new Date(b.created));
+    const patients = state.patients.filter(patient => patient.branch === branch && (user.role === 'Manager' || (patient.org || ORG_DEFAULT) === userOrg) && patient.status !== 'Done').sort((a, b) => (a.status === 'Serving' ? -1 : 1) - (b.status === 'Serving' ? -1 : 1) || Number(a.late) - Number(b.late) || new Date(a.created) - new Date(b.created));
     return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-5 border-b border-slate-100 flex items-center justify-between gap-3"><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl ${toneClasses(item.tone)} flex items-center justify-center">${icon(item.icon)}</div><div><h2 class="font-bold">${item.label}</h2><p class="text-xs text-slate-400" dir="rtl">${item.ar}</p></div></div><div class="text-right"><div class="font-bold">${patients.length}</div><div class="text-xs text-slate-400">active</div></div></div><div>${patients.map(patient => ticketRow(patient, user.role === 'Manager' || patient.assignedTo !== user.id)).join('') || '<div class="p-6 text-center text-sm text-slate-400">No active patients in this queue.</div>'}</div></section>`;
   }).join('');
   return `<div class="fade">${hero('Core queue system', 'Queues & patient routing', 'Every patient keeps one unique code while the routing engine coordinates the right available employee.', `${btn('Refresh', 'refresh', 'bg-white border border-slate-200 text-ink hover:border-teal', 'refresh-cw')}`)}<div class="flex flex-col sm:flex-row gap-3 mb-5"><div class="relative flex-1"><span class="absolute left-3 top-3 text-slate-400">${icon('search')}</span><input id="queueSearch" class="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-3 text-sm" placeholder="Search ticket, destination, status, or employee" /></div><div class="rounded-xl bg-teal/5 border border-teal/10 px-4 py-3 text-sm text-teal flex items-center gap-2">${icon('route')} Auto-routing active</div></div><div class="grid xl:grid-cols-2 gap-5">${branches}</div></div>`;
 }
 function displayCard(item) {
-  const patients = state.patients.filter(patient => patient.branch === item.key);
+  const viewer = currentUser();
+  const visiblePatients = viewer.role === 'Manager' ? state.patients : state.patients.filter(patient => (patient.org || ORG_DEFAULT) === (viewer.org || ORG_DEFAULT));
+  const patients = visiblePatients.filter(patient => patient.branch === item.key);
   const current = patients.find(patient => patient.status === 'Serving');
   const waiting = patients.filter(patient => patient.status === 'Waiting');
-  const people = state.users.filter(user => user.dept === item.key && user.role !== 'Manager');
+  const people = state.users.filter(user => user.dept === item.key && (user.org || ORG_DEFAULT) === (viewer.org || ORG_DEFAULT) && user.role !== 'Manager');
   return `<div class="display-card bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-4 border-b border-slate-100 flex justify-between items-center"><div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full ${people.some(person => person.availability !== 'unavailable') ? 'bg-emerald-500' : 'bg-slate-300'}"></span><b>${item.label}</b></div><span class="text-xs text-slate-400">${people.filter(person => person.availability !== 'unavailable').length}/${people.length} available</span></div><div class="p-5"><div class="text-xs text-slate-400 uppercase tracking-wider">Now serving</div><div class="display-code mt-2">${current ? current.code : '—'}</div><div class="text-sm text-slate-500 mt-2">${current ? `Please proceed to ${item.label}` : 'Waiting for the next call'}</div><div class="mt-5 pt-4 border-t border-slate-100 flex justify-between items-center"><span class="text-sm text-slate-500">Waiting queue</span><span class="font-bold text-lg">${waiting.length}</span></div>${waiting.slice(0, 4).map(patient => `<div class="flex items-center justify-between py-2 text-sm"><span class="font-semibold">#${patient.code}</span>${patient.late ? '<span class="text-xs text-orange-600">Late</span>' : '<span class="text-xs text-slate-400">Waiting</span>'}</div>`).join('')}</div></div>`;
 }
 function displays() {
@@ -336,12 +343,12 @@ function addAction(type, patient, extra = {}) {
   patient.history = patient.history || [];
   patient.history.push({ at: now(), event: type, by: currentUser().name, destination: extra.to || patient.branch });
 }
-function availableWorkers(branch) {
-  return state.users.filter(user => user.dept === branch && user.role !== 'Manager' && user.availability !== 'unavailable');
+function availableWorkers(branch, org = ORG_DEFAULT) {
+  return state.users.filter(user => user.dept === branch && (user.org || ORG_DEFAULT) === (org || ORG_DEFAULT) && user.role !== 'Manager' && user.availability !== 'unavailable');
 }
 function routePatient(patient, branch = patient.branch, skipUserId = null) {
   patient.branch = branch;
-  const candidates = availableWorkers(branch).filter(user => user.id !== skipUserId);
+  const candidates = availableWorkers(branch, patient.org).filter(user => user.id !== skipUserId);
   if (!candidates.length) { patient.assignedTo = null; return null; }
   const sorted = candidates.sort((a, b) => (a.cmoSlot || 99) - (b.cmoSlot || 99));
   const pointer = Number(state.routing[branch] || 1);
@@ -357,20 +364,22 @@ function rebalanceUser(user) {
   const affected = state.patients.filter(patient => patient.assignedTo === user.id && patient.status !== 'Done');
   affected.forEach(patient => {
     const previous = user.name;
-    const routed = routePatient(patient, patient.branch, user.id);
     patient.status = 'Waiting';
+    patient.assignedTo = null;
     patient.history = patient.history || [];
-    patient.history.push({ at: now(), event: routed ? 'Auto-routed' : 'Unassigned', by: 'Routing engine', from: previous, destination: patient.branch });
-    if (routed) state.actions.push({ user: 'Routing engine', userId: 'SYSTEM', dept: patient.branch, type: 'Auto-route', code: patient.code, time: now(), to: routed.name });
+    patient.history.push({ at: now(), event: 'Auto-queued', by: 'Routing engine', from: previous, destination: patient.branch });
+    state.actions.push({ user: 'Routing engine', userId: 'SYSTEM', dept: patient.branch, type: 'Auto-queue', code: patient.code, time: now(), to: patient.branch === 'CMO' ? 'Shared Clinic queue' : patient.branch });
   });
+  if (user.dept !== 'CMO') rebalanceWaiting(user.dept, user.org);
 }
-function rebalanceWaiting(branch) {
-  state.patients.filter(patient => patient.branch === branch && patient.status === 'Waiting' && !patient.assignedTo).forEach(patient => routePatient(patient, branch));
+function rebalanceWaiting(branch, org = ORG_DEFAULT) {
+  if (branch === 'CMO') return;
+  state.patients.filter(patient => patient.branch === branch && (patient.org || ORG_DEFAULT) === (org || ORG_DEFAULT) && patient.status === 'Waiting' && !patient.assignedTo).forEach(patient => routePatient(patient, branch));
 }
 function setAvailability(user, next) {
   const unavailable = next === 'unavailable';
   user.availability = unavailable ? 'unavailable' : 'available';
-  if (unavailable) rebalanceUser(user); else rebalanceWaiting(user.dept);
+  if (unavailable) rebalanceUser(user); else rebalanceWaiting(user.dept, user.org);
   save();
   shell();
   render();
@@ -406,8 +415,8 @@ function issueTicket(service) {
     attempts += 1;
   }
   state.nextCode = code === 999 ? 1 : code + 1;
-  const patient = { code, service, branch: service, status: 'Waiting', late: false, created: now(), assignedTo: null, history: [{ at: now(), event: 'Issued', by: currentUser().name, destination: service }] };
-  const assigned = routePatient(patient, service);
+  const patient = { code, service, branch: service, org: currentUser().org || ORG_DEFAULT, status: 'Waiting', late: false, created: now(), assignedTo: null, history: [{ at: now(), event: 'Issued', by: currentUser().name, destination: service }] };
+  const assigned = service === 'CMO' ? null : routePatient(patient, service);
   state.patients.push(patient);
   state.lastTicket = patient;
   state.actions.push({ user: currentUser().name, userId: currentUser().id, dept: currentUser().dept, type: 'Issue', code, time: now(), to: service });
@@ -419,7 +428,7 @@ function showTicketModal(patient, assigned) {
   const modal = document.createElement('div');
   modal.id = 'ticketModal';
   modal.className = 'fixed inset-0 z-[80] flex items-center justify-center p-4 modal-backdrop';
-  modal.innerHTML = `<div class="bg-white rounded-3xl shadow-lift max-w-md w-full overflow-hidden"><div class="bg-ink text-white p-6 text-center"><div class="text-teal-300 text-sm font-semibold">${item.label} · ${item.ar}</div><div class="ticket-number ticket-number-lg mx-auto mt-5">${patient.code}</div><div class="mt-4">${statusPill(patient.status)}</div></div><div class="p-6"><div class="rounded-2xl bg-mist p-4 text-sm text-slate-600"><div class="flex justify-between gap-3"><span>Assigned employee</span><b class="text-ink">${assigned ? esc(assigned.name) : 'Waiting for an available employee'}</b></div><div class="flex justify-between gap-3 mt-3"><span>Queue position</span><b class="text-ink">${state.patients.filter(p => p.branch === patient.branch && p.status === 'Waiting').length}</b></div></div><p class="text-center text-sm text-slate-500 mt-5">Please keep this unique code and follow the live display for ${item.label}.</p><div class="flex gap-2 mt-6">${btn('Print ticket', 'modal-print', 'flex-1 bg-teal text-white hover:bg-teal-700', 'printer')}${btn('Close', 'close-modal', 'flex-1 bg-white text-ink border border-slate-200 hover:border-teal')}</div></div></div>`;
+  modal.innerHTML = `<div class="bg-white rounded-3xl shadow-lift max-w-md w-full overflow-hidden"><div class="bg-ink text-white p-6 text-center"><div class="text-teal-300 text-sm font-semibold">${item.label} · ${item.ar}</div><div class="ticket-number ticket-number-lg mx-auto mt-5">${patient.code}</div><div class="mt-4">${statusPill(patient.status)}</div></div><div class="p-6"><div class="rounded-2xl bg-mist p-4 text-sm text-slate-600"><div class="flex justify-between gap-3"><span>Assigned employee</span><b class="text-ink">${assigned ? esc(assigned.name) : patient.branch === 'CMO' ? 'Shared Clinic queue' : 'Waiting for an available employee'}</b></div><div class="flex justify-between gap-3 mt-3"><span>Queue position</span><b class="text-ink">${state.patients.filter(p => p.branch === patient.branch && (p.org || ORG_DEFAULT) === (patient.org || ORG_DEFAULT) && p.status === 'Waiting').length}</b></div></div><p class="text-center text-sm text-slate-500 mt-5">Please keep this unique code and follow the live display for ${item.label}.</p><div class="flex gap-2 mt-6">${btn('Print ticket', 'modal-print', 'flex-1 bg-teal text-white hover:bg-teal-700', 'printer')}${btn('Close', 'close-modal', 'flex-1 bg-white text-ink border border-slate-200 hover:border-teal')}</div></div></div>`;
   document.body.appendChild(modal);
   modal.querySelector('[data-action="close-modal"]').onclick = () => modal.remove();
   modal.querySelector('[data-action="modal-print"]').onclick = () => printTicket(patient);
@@ -437,11 +446,15 @@ function callNext() {
   const user = currentUser();
   if (user.availability === 'unavailable') return toast('Set yourself available before calling a patient.', 'error');
   if (activeSession(user.id) === undefined) sessionToggle();
-  const waiting = state.patients.filter(patient => patient.assignedTo === user.id && patient.status === 'Waiting').sort((a, b) => Number(a.late) - Number(b.late) || new Date(a.created) - new Date(b.created));
+  const waiting = (user.dept === 'CMO'
+    ? state.patients.filter(patient => patient.branch === 'CMO' && (patient.org || ORG_DEFAULT) === (user.org || ORG_DEFAULT) && patient.status === 'Waiting' && !patient.assignedTo)
+    : state.patients.filter(patient => patient.assignedTo === user.id && patient.status === 'Waiting'))
+    .sort((a, b) => Number(a.late) - Number(b.late) || new Date(a.created) - new Date(b.created));
   const patient = waiting[0];
-  if (!patient) return toast('No waiting patient is assigned to your station.', 'error');
+  if (!patient) return toast(user.dept === 'CMO' ? 'No waiting patient is available in the shared Clinic queue.' : 'No waiting patient is assigned to your station.', 'error');
   const previous = state.patients.find(item => item.assignedTo === user.id && item.status === 'Serving');
-  if (previous) previous.status = 'Waiting';
+  if (previous) { previous.status = 'Waiting'; if (user.dept === 'CMO') previous.assignedTo = null; }
+  patient.assignedTo = user.id;
   patient.status = 'Serving';
   patient.history.push({ at: now(), event: 'Called', by: user.name, destination: patient.branch });
   state.actions.push({ user: user.name, userId: user.id, dept: user.dept, type: 'Call', code: patient.code, time: now(), to: patient.branch });
@@ -452,7 +465,7 @@ function processPatient(type, code) {
   if (!patient) return toast('Patient ticket was not found.', 'error');
   if (patient.assignedTo && patient.assignedTo !== currentUser().id && currentUser().role !== 'Manager') return toast('This patient is assigned to another employee.', 'error');
   if (type === 'done') { patient.status = 'Done'; patient.late = false; addAction('Done', patient); toast(`Ticket #${code} marked done.`); }
-  else if (type === 'late') { patient.late = true; patient.status = 'Waiting'; addAction('Late', patient); toast(`Ticket #${code} marked late and moved behind on-time patients.`); }
+  else if (type === 'late') { patient.late = true; patient.status = 'Waiting'; if (patient.branch === 'CMO') patient.assignedTo = null; addAction('Late', patient); toast(`Ticket #${code} marked late and moved behind on-time patients.`); }
   else if (type === 'transfer') openTransferModal(patient);
   save();
   if (type !== 'transfer') render();
@@ -467,8 +480,8 @@ function openTransferModal(patient) {
   modal.querySelector('[data-action="confirm-transfer"]').onclick = () => {
     const to = document.getElementById('transferDestination').value;
     const from = patient.branch;
-    patient.branch = to; patient.service = to; patient.status = 'Waiting'; patient.late = false;
-    const assigned = routePatient(patient, to);
+    patient.branch = to; patient.service = to; patient.status = 'Waiting'; patient.late = false; patient.assignedTo = null; patient.org = patient.org || currentUser().org || ORG_DEFAULT;
+    const assigned = to === 'CMO' ? null : routePatient(patient, to);
     patient.history.push({ at: now(), event: 'Transfer', by: currentUser().name, from, destination: to });
     state.actions.push({ user: currentUser().name, userId: currentUser().id, dept: currentUser().dept, type: 'Transfer', code: patient.code, time: now(), from, to });
     save(); modal.remove(); render(); toast(`Ticket #${patient.code} transferred to ${destination(to).label}${assigned ? ` · ${assigned.name}` : ''}.`);
