@@ -1,28 +1,34 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PFC — Patient Flow Controller</title>
-  <link rel="icon" type="image/png" href="images/eha-logo-mark.png" />
+  <link rel="icon" type="image/png" href="eha-logo-mark.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script>
-    tailwind.config = { theme: { extend: { colors: { ink:'#10233f', teal:'#0f766e', mist:'#f4f7fb', orange:'#f97316' }, boxShadow:{soft:'0 18px 50px rgba(16,35,63,.10)'} } } };
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { ink:'#10233f', teal:'#0f766e', mist:'#f5f8fb', navy:'#0b1930', orange:'#f97316' },
+          boxShadow: { soft:'0 18px 50px rgba(16,35,63,.10)', lift:'0 24px 70px rgba(16,35,63,.15)' }
+        }
+      }
+    };
   </script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="toastRoot" class="fixed right-4 top-4 z-[100] space-y-3"></div>
 
-  <!-- AUTH VIEW -->
-  <div id="authView" class="min-h-screen grid lg:grid-cols-[1.05fr_.95fr] bg-white">
+  <div id="authView" class="min-h-screen grid lg:grid-cols-[1.08fr_.92fr] bg-white">
     <section class="hidden lg:flex bg-ink text-white p-14 relative overflow-hidden flex-col justify-between">
       <div class="absolute -right-24 -top-24 w-96 h-96 rounded-full bg-teal/30 blur-3xl"></div>
       <div class="absolute -left-24 bottom-0 w-80 h-80 rounded-full bg-cyan-400/10 blur-3xl"></div>
       <div class="relative">
         <div class="flex items-center gap-3">
-          <div class="h-12 w-12 rounded-2xl bg-white flex items-center justify-center overflow-hidden p-1 shadow-soft"><img src="images/eha-logo-mark.png" alt="Egypt Healthcare Authority" class="h-full w-full object-contain" /></div>
+          <div class="h-12 w-12 rounded-2xl bg-white flex items-center justify-center overflow-hidden p-1 shadow-soft"><img src="eha-logo-mark.png" alt="Egypt Healthcare Authority" class="h-full w-full object-contain" /></div>
           <div><div class="font-bold text-xl">PFC</div><div class="text-xs text-slate-300">Patient Flow Controller</div></div>
         </div>
         <div class="mt-24 max-w-xl">
@@ -33,18 +39,18 @@
       </div>
       <div class="relative">
         <div class="grid grid-cols-3 gap-4 text-sm mb-10">
-          <div><div class="text-3xl font-bold">1–999</div><div class="text-slate-400 mt-1">Persistent ticket IDs</div></div>
-          <div><div class="text-3xl font-bold">6+</div><div class="text-slate-400 mt-1">Service destinations</div></div>
-          <div><div class="text-3xl font-bold">24/7</div><div class="text-slate-400 mt-1">Operational visibility</div></div>
+          <div><div class="text-3xl font-bold">1–999</div><div class="text-slate-400 mt-1">Unique ticket codes</div></div>
+          <div><div class="text-3xl font-bold">24/7</div><div class="text-slate-400 mt-1">Queue visibility</div></div>
+          <div><div class="text-3xl font-bold">3-way</div><div class="text-slate-400 mt-1">CMO balancing</div></div>
         </div>
-        <div class="rounded-2xl bg-white/95 p-4 inline-flex items-center gap-3 shadow-soft"><img src="images/eha-logo-lockup.png" alt="Egypt Healthcare Authority" class="h-10 w-auto object-contain" /></div>
+        <div class="rounded-2xl bg-white/95 p-4 inline-flex items-center gap-3 shadow-soft"><img src="eha-logo-lockup.png" alt="Egypt Healthcare Authority" class="h-10 w-auto object-contain" /></div>
       </div>
     </section>
 
     <section class="flex items-center justify-center p-6 sm:p-12">
       <div class="w-full max-w-md">
         <div class="lg:hidden flex items-center gap-3 mb-12">
-          <div class="h-12 w-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center overflow-hidden p-1 shadow-soft"><img src="images/eha-logo-mark.png" alt="Egypt Healthcare Authority" class="h-full w-full object-contain" /></div>
+          <div class="h-12 w-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center overflow-hidden p-1 shadow-soft"><img src="eha-logo-mark.png" alt="Egypt Healthcare Authority" class="h-full w-full object-contain" /></div>
           <div><b class="text-xl">PFC</b><div class="text-xs text-slate-500">Patient Flow Controller</div></div>
         </div>
         <div class="mb-8">
@@ -53,7 +59,7 @@
           <p id="authSubtitle" class="text-slate-500 mt-2">Sign in to manage your station and queues.</p>
         </div>
         <form id="loginForm" class="space-y-4">
-          <label class="block text-sm font-semibold">Username<input id="loginUser" required class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3.5 outline-none focus:ring-2 focus:ring-teal/30" placeholder="e.g. ahmed.ali" /></label>
+          <label class="block text-sm font-semibold">Username<input id="loginUser" required class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3.5 outline-none focus:ring-2 focus:ring-teal/30" placeholder="Username or staff ID" /></label>
           <label class="block text-sm font-semibold">Password<input id="loginPass" required type="password" class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3.5 outline-none focus:ring-2 focus:ring-teal/30" placeholder="••••••••" /></label>
           <button class="w-full rounded-xl bg-ink text-white py-3.5 font-semibold hover:bg-slate-800 transition">Sign in <i data-lucide="arrow-right" class="inline h-4 w-4 ml-1"></i></button>
           <p class="text-center text-sm text-slate-500">No account? <button type="button" id="showSignup" class="text-teal font-semibold">Create an account</button></p>
@@ -61,11 +67,15 @@
         <form id="signupForm" class="space-y-3 hidden">
           <div class="grid sm:grid-cols-2 gap-3">
             <label class="block text-sm font-semibold">Full name<input id="suName" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="Full name" /></label>
-            <label class="block text-sm font-semibold">Unique ID<input id="suId" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="EHA-0000" /></label>
+            <label class="block text-sm font-semibold">Staff ID<input id="suId" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="EHA-0000" /></label>
           </div>
           <div class="grid sm:grid-cols-2 gap-3">
-            <label class="block text-sm font-semibold">Department<select id="suDept" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option>Reception</option><option>Pharmacy</option><option>Laboratory</option><option>Radiology</option><option>Clinic Room 101</option><option>Clinic Room 102</option><option>خزنة / Cashier</option></select></label>
-            <label class="block text-sm font-semibold">Role<select id="suRole" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option>Employee</option><option>Doctor</option></select></label>
+            <label class="block text-sm font-semibold">Organization<select id="suOrg" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option>وحدة طب أسرة العوامية</option><option>وحدة طب أسرة القطيف</option><option>مستشفى العوامية المركزي</option></select></label>
+            <label class="block text-sm font-semibold">Place / station<select id="suDept" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option>Reception</option><option>CMO</option><option>Pharmacy</option><option>Laboratory</option><option>Radiology</option><option>Cashier</option></select></label>
+          </div>
+          <div class="grid sm:grid-cols-2 gap-3">
+            <label class="block text-sm font-semibold">Role<select id="suRole" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option>Employee</option><option>Doctor</option><option>Receptionist</option></select></label>
+            <label class="block text-sm font-semibold">Shift starts<input id="suShift" type="time" value="08:00" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" /></label>
           </div>
           <label class="block text-sm font-semibold">Email<input id="suEmail" type="email" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="name@eha.gov.eg" /></label>
           <label class="block text-sm font-semibold">Username<input id="suUser" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="username" /></label>
@@ -74,40 +84,40 @@
           <p class="text-center text-sm text-slate-500">Already registered? <button type="button" id="showLogin" class="text-teal font-semibold">Back to sign in</button></p>
         </form>
         <div class="mt-8 rounded-2xl bg-mist p-4 text-xs text-slate-500">
-          <b class="text-slate-700">Demo accounts</b>
+          <b class="text-slate-700">Demo access</b>
           <div class="mt-2 grid gap-1">
+            <span>Reception setup: <strong>2006159 / 2005510</strong></span>
             <span>Manager: <strong>manager / manager123</strong></span>
-            <span>Employee: <strong>ahmed.ali / demo123</strong></span>
+            <span>CMO employee: <strong>doctor.layla / doctor123</strong></span>
             <span>Pharmacy: <strong>sara.youssef / demo123</strong></span>
-            <span>Doctor: <strong>doctor.layla / doctor123</strong></span>
           </div>
         </div>
       </div>
     </section>
   </div>
 
-  <!-- APP VIEW -->
   <div id="appView" class="hidden min-h-screen">
     <aside id="sidebar" class="fixed z-40 inset-y-0 left-0 w-72 bg-ink text-white transform -translate-x-full lg:translate-x-0 transition-transform">
       <div class="p-6 flex items-center gap-3 border-b border-white/10">
-        <div class="h-10 w-10 rounded-xl bg-white flex items-center justify-center overflow-hidden p-1"><img src="images/eha-logo-mark.png" alt="Egypt Healthcare Authority" class="h-full w-full object-contain" /></div>
+        <div class="h-10 w-10 rounded-xl bg-white flex items-center justify-center overflow-hidden p-1"><img src="eha-logo-mark.png" alt="Egypt Healthcare Authority" class="h-full w-full object-contain" /></div>
         <div><b class="text-lg">PFC</b><div class="text-[10px] text-slate-400 uppercase tracking-widest">Operations suite</div></div>
         <button id="closeSide" class="ml-auto lg:hidden text-slate-300"><i data-lucide="x"></i></button>
       </div>
       <nav id="nav" class="p-4 space-y-1"></nav>
       <div class="absolute bottom-0 inset-x-0 p-4 space-y-3">
-        <div class="rounded-2xl bg-white/10 p-4"><div class="text-xs text-slate-400">System status</div><div class="flex items-center gap-2 mt-2 text-sm"><span class="h-2 w-2 rounded-full bg-emerald-400"></span> All services operational</div></div>
-        <div class="flex items-center justify-center rounded-2xl bg-white/95 p-3"><img src="images/eha-logo-lockup.png" alt="Egypt Healthcare Authority" class="h-7 w-auto object-contain" /></div>
+        <div class="rounded-2xl bg-white/10 p-4"><div class="text-xs text-slate-400">System status</div><div class="flex items-center gap-2 mt-2 text-sm"><span class="h-2 w-2 rounded-full bg-emerald-400"></span> Routing engine operational</div></div>
+        <div class="flex items-center justify-center rounded-2xl bg-white/95 p-3"><img src="eha-logo-lockup.png" alt="Egypt Healthcare Authority" class="h-7 w-auto object-contain" /></div>
       </div>
     </aside>
     <div class="lg:pl-72">
       <header class="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-5 sm:px-8 sticky top-0 z-30">
         <button id="openSide" class="lg:hidden"><i data-lucide="menu"></i></button>
         <div class="flex items-center gap-3">
-          <img src="images/eha-logo-mark.png" alt="Egypt Healthcare Authority" class="h-9 w-9 object-contain hidden sm:block" />
+          <img src="eha-logo-mark.png" alt="Egypt Healthcare Authority" class="h-9 w-9 object-contain hidden sm:block" />
           <div><div class="text-xs text-slate-400">Egypt Healthcare Authority</div><div id="pageKicker" class="font-semibold">Operations overview</div></div>
         </div>
         <div class="flex items-center gap-3">
+          <button id="headerAvailability" class="status-pill status-available hidden sm:inline-flex" title="Change availability"></button>
           <div class="hidden sm:block text-right"><div id="topUser" class="font-semibold text-sm"></div><div id="topDept" class="text-xs text-slate-500"></div></div>
           <div id="topAvatar" class="h-10 w-10 rounded-xl bg-teal text-white flex items-center justify-center font-bold"></div>
           <button id="logoutBtn" title="Logout" class="text-slate-500 hover:text-red-600 ml-1"><i data-lucide="log-out"></i></button>
@@ -118,7 +128,6 @@
   </div>
 
   <div id="ticketPrint" class="ticket-print"></div>
-
   <script src="app.js"></script>
 </body>
 </html>
