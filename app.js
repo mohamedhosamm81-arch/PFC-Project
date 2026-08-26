@@ -96,9 +96,9 @@ try {
 
 const ACCESS = {
   Manager: ['overview', 'displays', 'reports', 'activity', 'admin'],
-  Receptionist: ['overview', 'kiosk', 'queues', 'displays', 'sessions', 'activity'],
-  Doctor: ['overview', 'queues', 'displays', 'sessions', 'activity'],
-  Employee: ['overview', 'queues', 'displays', 'sessions', 'activity']
+  Receptionist: ['overview', 'kiosk', 'queues', 'sessions', 'activity'],
+  Doctor: ['overview', 'queues', 'sessions', 'activity'],
+  Employee: ['overview', 'queues', 'sessions', 'activity']
 };
 const canAccess = target => {
   const user = currentUser();
@@ -230,7 +230,7 @@ function overview() {
     const percent = Math.min(100, 14 + (activeCount * 18));
     return `<div class="py-3 border-b border-slate-100 last:border-0"><div class="flex items-center justify-between gap-3"><div class="flex items-center gap-3"><div class="h-9 w-9 rounded-xl ${toneClasses(item.tone)} flex items-center justify-center">${icon(item.icon)}</div><div><div class="font-semibold text-sm">${item.label}</div><div class="text-xs text-slate-400" dir="rtl">${item.ar}</div></div></div><div class="text-right"><div class="font-bold text-sm">${activeCount} active</div><div class="text-xs text-slate-400">${waiting} waiting · ${available}/${people.length || 0} online</div></div></div><div class="h-1.5 mt-3 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full ${item.key === 'Pharmacy' ? 'bg-emerald-500' : item.key === 'Radiology' ? 'bg-orange-400' : 'bg-teal'}" style="width:${percent}%"></div></div></div>`;
   }).join('');
-  return `<div class="fade">${hero(`Good morning, ${esc(user.name.split(' ')[0])}`, 'Operations overview', 'See today’s patient volume, employee availability, and routing health from one control room.', actions)}${stationConsole()}<div class="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">${statCard('Patients served today', servedToday(), 'Completed journeys today', 'badge-check', 'teal')}${statCard('Total served', totalServed(), 'All completed journeys', 'users-round', 'blue')}${statCard('Waiting now', activePatients().filter(patient => patient.status === 'Waiting').length, 'Ready to be called', 'clock-3', 'orange')}${statCard('Late in queue', late, 'Marked late and prioritized last', 'alarm-clock', 'orange')}</div><div class="grid xl:grid-cols-[1.25fr_.75fr] gap-5 mt-5"><div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5"><div class="flex items-start justify-between gap-3"><div><h2 class="font-bold">Live destination load</h2><p class="text-sm text-slate-500 mt-1">Queue health and employee capacity right now.</p></div>${btn('Open displays', 'go-displays', 'text-teal bg-teal/5 hover:bg-teal/10', 'monitor-smartphone')}</div><div class="mt-4">${branchRows}</div></div>${sessionSummary()}</div></div>`;
+  return `<div class="fade">${hero(`Good morning, ${esc(user.name.split(' ')[0])}`, 'Operations overview', 'See today’s patient volume, employee availability, and routing health from one control room.', actions)}${stationConsole()}<div class="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">${statCard('Patients served today', servedToday(), 'Completed journeys today', 'badge-check', 'teal')}${statCard('Total served', totalServed(), 'All completed journeys', 'users-round', 'blue')}${statCard('Waiting now', activePatients().filter(patient => patient.status === 'Waiting').length, 'Ready to be called', 'clock-3', 'orange')}${statCard('Late in queue', late, 'Marked late and prioritized last', 'alarm-clock', 'orange')}</div><div class="grid xl:grid-cols-[1.25fr_.75fr] gap-5 mt-5"><div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5"><div class="flex items-start justify-between gap-3"><div><h2 class="font-bold">Live destination load</h2><p class="text-sm text-slate-500 mt-1">Queue health and employee capacity right now.</p></div>${user.role === 'Manager' ? btn('Open displays', 'go-displays', 'text-teal bg-teal/5 hover:bg-teal/10', 'monitor-smartphone') : ''}</div><div class="mt-4">${branchRows}</div></div>${sessionSummary()}</div></div>`;
 }
 function kiosk() {
   const last = state.lastTicket;
@@ -517,7 +517,7 @@ function bindPage() {
 function handleAction(action) {
   if (action === 'go-kiosk') page = 'kiosk';
   else if (action === 'go-queues') page = 'queues';
-  else if (action === 'go-displays') page = 'displays';
+  else if (action === 'go-displays') { if (!canAccess('displays')) { toast('Live Displays are available to managers only.', 'error'); return; } page = 'displays'; }
   else if (action === 'go-reports') page = 'reports';
   else if (action === 'refresh') { render(); return; }
   else if (action === 'next-patient') { callNext(); return; }
