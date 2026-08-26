@@ -175,11 +175,11 @@ function shell() {
 
   if (kioskFullscreen || sessionLocked) {
     document.getElementById('sidebar').classList.add('hidden');
-    document.querySelector('.lg\\:pl-72').classList.remove('lg:pl-72');
+    document.getElementById('contentShell').classList.remove('lg:pl-72');
     document.querySelector('header').classList.add('hidden');
   } else {
     document.getElementById('sidebar').classList.remove('hidden');
-    document.querySelector('.lg\\:pl-72')?.classList.add('lg:pl-72');
+    document.getElementById('contentShell').classList.add('lg:pl-72');
     document.querySelector('header').classList.remove('hidden');
   }
 
