@@ -31,3 +31,7 @@ input:focus, select:focus { border-color: rgba(15, 118, 110, .48); box-shadow: 0
 @media print {
   #authView, #appView, #toastRoot { display: none !important; }
 }
+
+.session-start-page { position: fixed; inset: 0; z-index: 100; background: var(--mist); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; }
+.session-start-brand { position: absolute; top: 2.5rem; left: 2.5rem; display: flex; align-items: center; gap: 1rem; }
+.session-start-card { background: #fff; border-radius: 3rem; padding: 4rem 2rem; text-align: center; box-shadow: var(--lift); width: 100%; max-width: 720px; animation: rise .4s ease both; }

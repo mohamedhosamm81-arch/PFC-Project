@@ -87,9 +87,10 @@ try {
 } catch (error) {
   state = createSeed();
 }
-let page = 'overview';
-let displayMode = 'door';
-let reportPeriod = 'month';
+  let page = 'overview';
+  let displayMode = 'door';
+  let reportPeriod = 'month';
+  let kioskFullscreen = false;
 
 const ACCESS = {
   Manager: ['overview', 'displays', 'reports', 'activity', 'admin'],
@@ -97,9 +98,14 @@ const ACCESS = {
   Doctor: ['overview', 'queues', 'displays', 'sessions', 'activity'],
   Employee: ['overview', 'queues', 'displays', 'sessions', 'activity']
 };
+const canAccess = target => {
+  const user = currentUser();
+  if (!user) return false;
+  if (user.setup && target !== 'kiosk') return false;
+  return (ACCESS[user.role] || ACCESS.Employee).includes(target);
+};
 const save = () => localStorage.setItem(KEY, JSON.stringify(state));
 const currentUser = () => state.currentUser;
-const canAccess = target => Boolean(currentUser() && (ACCESS[currentUser().role] || ACCESS.Employee).includes(target));
 const userById = id => state.users.find(user => user.id === id);
 const destination = key => DESTINATIONS.find(item => item.key === key) || DESTINATIONS[0];
 const patientByCode = code => state.patients.find(patient => Number(patient.code) === Number(code));
@@ -159,12 +165,24 @@ function shell() {
   document.getElementById('authView').classList.add('hidden');
   document.getElementById('appView').classList.remove('hidden');
   const user = currentUser();
+  const sessionLocked = page === 'sessions' && user.role !== 'Manager' && user.role !== 'Receptionist' && !activeSession(user.id);
   document.getElementById('topUser').textContent = user.name;
   document.getElementById('topDept').textContent = `${user.role} · ${user.id} · ${user.dept}`;
   document.getElementById('topAvatar').textContent = initials(user.name);
   const availability = document.getElementById('headerAvailability');
   availability.className = `status-pill ${user.availability === 'unavailable' ? 'status-unavailable' : 'status-available'}`;
   availability.innerHTML = `${icon(user.availability === 'unavailable' ? 'pause-circle' : 'circle-check')} ${user.availability === 'unavailable' ? 'Unavailable' : 'Available'}`;
+
+  if (kioskFullscreen || sessionLocked) {
+    document.getElementById('sidebar').classList.add('hidden');
+    document.querySelector('.lg\\:pl-72').classList.remove('lg:pl-72');
+    document.querySelector('header').classList.add('hidden');
+  } else {
+    document.getElementById('sidebar').classList.remove('hidden');
+    document.querySelector('.lg\\:pl-72')?.classList.add('lg:pl-72');
+    document.querySelector('header').classList.remove('hidden');
+  }
+
   nav();
   lucide.createIcons();
 }
@@ -182,12 +200,16 @@ function sessionSummary() {
 }
 function stationConsole() {
   const user = currentUser();
+  const session = activeSession(user.id);
+  if (!session && user.role !== 'Manager' && user.dept !== 'Administration') {
+    return `<section class="bg-white rounded-3xl border border-slate-100 shadow-soft p-8 text-center max-w-2xl mx-auto my-12"><div class="h-20 w-20 rounded-3xl bg-teal/10 text-teal flex items-center justify-center mx-auto mb-6">${icon('play', 'h-10 w-10')}</div><h2 class="text-3xl font-bold">Start your session</h2><p class="text-slate-500 mt-4 text-lg">You must start a session to begin receiving patients at your station. Your start time and lateness will be recorded.</p><button data-action="session-toggle" class="mt-8 rounded-2xl bg-teal text-white px-8 py-4 text-lg font-bold hover:bg-teal-700 transition shadow-soft">Start working now ${icon('arrow-right')}</button></section>`;
+  }
   const myPatients = state.patients.filter(patient => patient.assignedTo === user.id && ['Waiting', 'Serving'].includes(patient.status));
   const serving = myPatients.find(patient => patient.status === 'Serving');
   const waiting = myPatients.filter(patient => patient.status === 'Waiting').length;
   const canProcess = user.role !== 'Manager' && user.dept !== 'Administration';
   if (!canProcess) return `<div class="notice-card border border-slate-200 bg-white rounded-2xl p-5 mb-5"><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl bg-teal/10 text-teal flex items-center justify-center">${icon('shield-check')}</div><div><b>Manager control center</b><p class="text-sm text-slate-500 mt-1">Use the admin dashboard and reports to supervise every destination and employee.</p></div></div></div>`;
-  return `<section class="bg-white rounded-2xl border border-teal-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex flex-col xl:flex-row xl:items-center justify-between gap-5"><div><div class="flex items-center gap-2 text-teal text-sm font-semibold">${icon('scan-line')} ${user.dept === 'CMO' ? 'CMO queue command center' : `${esc(user.dept)} command center`}</div><h2 class="text-xl font-bold mt-2">${serving ? `Now serving ticket #${serving.code}` : 'Ready for the next patient'}</h2><p class="text-sm text-slate-500 mt-1">Press <b>Next patient</b> to call the next ticket. Use Done, Late, or Transfer to update the current journey.</p></div><div class="flex items-center gap-2">${availabilityPill(user)}<span class="rounded-xl bg-mist border border-slate-100 px-4 py-2.5 text-sm text-slate-600">${waiting} waiting for you</span></div></div>${serving ? `<div class="mt-5 rounded-2xl bg-teal/[.06] border border-teal/10 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"><div class="flex items-center gap-4"><div class="ticket-number ticket-number-sm">${serving.code}</div><div><div class="font-bold">Current patient</div><div class="text-sm text-slate-500">Issued ${fmt(serving.created)} · ${serving.late ? 'Marked late' : 'On time'}</div></div></div><div class="flex flex-wrap gap-2">${btn('Done', `patient-done-${serving.code}`, 'bg-emerald-600 text-white hover:bg-emerald-700', 'check')}${btn('Late', `patient-late-${serving.code}`, 'bg-orange-500 text-white hover:bg-orange-600', 'clock-3')}${btn('Transfer', `patient-transfer-${serving.code}`, 'bg-white text-ink border border-slate-200 hover:border-teal', 'arrow-right-left')}${btn('Pause queue', 'availability-toggle', 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300', 'pause')}</div></div>` : `<div class="mt-5 flex flex-col sm:flex-row gap-3"><button data-action="next-patient" class="rounded-xl bg-teal text-white px-5 py-3.5 font-semibold hover:bg-teal-700 transition">Next patient ${icon('arrow-right')}</button>${btn('Pause queue', 'availability-toggle', 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300', 'pause')}<div class="text-sm text-slate-500 flex items-center gap-2 px-2">${icon('info')} ${user.availability === 'unavailable' ? 'Set yourself available to receive patients.' : 'No patient is currently assigned.'}</div></div>`}</section>`;
+  return `<section class="bg-white rounded-2xl border border-teal-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex flex-col xl:flex-row xl:items-center justify-between gap-5"><div><div class="flex items-center gap-2 text-teal text-sm font-semibold">${icon('scan-line')} ${user.dept === 'CMO' ? 'CMO queue command center' : `${esc(user.dept)} command center`}</div><h2 class="text-xl font-bold mt-2">${serving ? `Now serving ticket #${serving.code}` : 'Ready for the next patient'}</h2><p class="text-sm text-slate-500 mt-1">Press <b>Next patient</b> to call the next ticket. Use Done, Late, or Transfer to update the current journey.</p></div><div class="flex items-center gap-2">${availabilityPill(user)}<span class="rounded-xl bg-mist border border-slate-100 px-4 py-2.5 text-sm text-slate-600">${waiting} waiting for you</span></div></div>${serving ? `<div class="mt-5 rounded-2xl bg-teal/[.06] border border-teal/10 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"><div class="flex items-center gap-4"><div class="ticket-number ticket-number-sm">${serving.code}</div><div><div class="font-bold">Current patient</div><div class="text-sm text-slate-500">Issued ${fmt(serving.created)} · ${serving.late ? 'Marked late' : 'On time'}</div></div></div><div class="flex flex-wrap gap-2">${btn('Done', `patient-done-${serving.code}`, 'bg-emerald-600 text-white hover:bg-emerald-700', 'check')}${btn('Late', `patient-late-${serving.code}`, 'bg-yellow-400 text-ink hover:bg-yellow-500', 'clock-3')}${btn('Transfer', `patient-transfer-${serving.code}`, 'bg-white text-ink border border-slate-200 hover:border-teal', 'arrow-right-left')}${btn('Pause queue', 'availability-toggle', 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300', 'pause')}</div></div>` : `<div class="mt-5 flex flex-col sm:flex-row gap-3"><button data-action="next-patient" class="rounded-xl bg-teal text-white px-5 py-3.5 font-semibold hover:bg-teal-700 transition">Next patient ${icon('arrow-right')}</button>${btn('Pause queue', 'availability-toggle', 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300', 'pause')}<div class="text-sm text-slate-500 flex items-center gap-2 px-2">${icon('info')} ${user.availability === 'unavailable' ? 'Set yourself available to receive patients.' : 'No patient is currently assigned.'}</div></div>`}</section>`;
 }
 function overview() {
   const user = currentUser();
@@ -208,7 +230,45 @@ function overview() {
 }
 function kiosk() {
   const last = state.lastTicket;
-  return `<div class="fade max-w-6xl mx-auto">${hero('Reception / استقبال', 'Issue a patient ticket', 'Choose the destination the patient needs. PFC creates a unique code and routes it to the fairest available employee automatically.', '',)}<div class="grid lg:grid-cols-[1.2fr_.8fr] gap-5"><section class="bg-white border border-slate-100 rounded-3xl shadow-soft p-5 sm:p-7"><div class="flex items-center justify-between gap-3 mb-5"><div><h2 class="font-bold text-lg">Choose destination</h2><p class="text-sm text-slate-500 mt-1">The queue will appear immediately on that station’s display.</p></div><span class="live-badge">LIVE ROUTING</span></div><div class="grid sm:grid-cols-2 gap-4">${DESTINATIONS.filter(item => item.key !== 'Cashier').map(item => `<button data-service="${item.key}" class="destination-button rounded-2xl p-5 text-left border border-slate-100 hover:border-teal/40 hover:-translate-y-0.5 transition"><div class="h-12 w-12 rounded-2xl ${toneClasses(item.tone)} flex items-center justify-center">${icon(item.icon, 'h-5 w-5')}</div><div class="mt-5 flex items-end justify-between gap-3"><div><h3 class="font-bold">${item.label}</h3><div class="text-sm text-slate-500 mt-1" dir="rtl">${item.ar}</div></div>${icon('arrow-up-right', 'h-5 w-5 text-slate-400')}</div><div class="mt-4 text-xs text-slate-400">${waitingFor(item.key).length} waiting · ${state.users.filter(user => user.dept === item.key && user.availability !== 'unavailable').length} available</div></button>`).join('')}</div><div class="mt-5 rounded-2xl bg-mist p-4 flex gap-3 text-sm text-slate-600">${icon('route', 'h-5 w-5 text-teal shrink-0')}<span><b class="text-ink">Fair routing is on.</b> CMO tickets rotate across the three CMO employees. If one is unavailable, new and waiting patients go equally to the remaining available employees.</span></div></section><section class="bg-ink rounded-3xl shadow-soft p-6 text-white min-h-[360px] flex flex-col justify-between"><div><div class="flex items-center gap-2 text-teal-300 text-sm font-semibold">${icon('ticket')} Latest issued ticket</div><div class="mt-10 text-center">${last ? `<div class="text-slate-300 text-sm">${esc(destination(last.service).label)} · ${fmt(last.created)}</div><div class="ticket-number ticket-number-lg mx-auto mt-4">${last.code}</div><div class="mt-4">${statusPill(last.status)}</div>` : `<div class="h-32 flex items-center justify-center text-slate-400">No ticket issued in this session.</div>`}</div></div><div class="flex gap-2 mt-8">${last ? btn('Print ticket', 'print-ticket', 'bg-white/10 text-white hover:bg-white/20 flex-1', 'printer') : ''}${btn('View queue', 'go-queues', 'bg-teal text-white hover:bg-teal-700 flex-1', 'list-ordered')}</div></section></div></div>`;
+  const kioskActions = kioskFullscreen ? btn('Exit kiosk', 'kiosk-exit', 'bg-white/10 text-white hover:bg-white/20', 'minimize') : btn('Enter kiosk mode', 'kiosk-enter', 'bg-teal text-white hover:bg-teal-700', 'maximize');
+  const kioskClass = kioskFullscreen ? 'fixed inset-0 z-[100] bg-mist p-8 overflow-y-auto' : 'fade max-w-6xl mx-auto';
+  return `<div class="${kioskClass}">${kioskFullscreen ? `<div class="flex justify-between items-center mb-8">
+    <div class="flex items-center gap-3">
+      <div class="h-12 w-12 rounded-2xl bg-white flex items-center justify-center overflow-hidden p-1 shadow-soft"><img src="eha-logo-mark.png" alt="EHA" class="h-full w-full object-contain" /></div>
+      <div><div class="font-bold text-xl">PFC Kiosk</div><div class="text-xs text-slate-500">وحدة طب أسرة العوامية</div></div>
+    </div>
+    ${kioskActions}
+  </div>` : hero('Reception / استقبال', 'Issue a patient ticket', 'Choose the destination the patient needs. PFC creates a unique code and routes it to the fairest available employee automatically.', kioskActions)}
+  <div class="grid lg:grid-cols-[1.2fr_.8fr] gap-5">
+    <section class="bg-white border border-slate-100 rounded-3xl shadow-soft p-5 sm:p-7">
+      <div class="flex items-center justify-between gap-3 mb-5">
+        <div><h2 class="font-bold text-2xl">Where would you like to go?</h2><p class="text-lg text-slate-500 mt-1">من فضلك اختر الوجهة التي تريد الذهاب إليها</p></div>
+        <span class="live-badge">LIVE ROUTING</span>
+      </div>
+      <div class="grid sm:grid-cols-2 gap-4">
+        ${DESTINATIONS.filter(item => item.key !== 'Cashier').map(item => `<button data-service="${item.key}" class="destination-button rounded-2xl p-6 text-left border border-slate-100 hover:border-teal/40 hover:-translate-y-0.5 transition">
+          <div class="h-16 w-16 rounded-2xl ${toneClasses(item.tone)} flex items-center justify-center">${icon(item.icon, 'h-8 w-8')}</div>
+          <div class="mt-6 flex items-end justify-between gap-3">
+            <div><h3 class="font-bold text-xl">${item.label}</h3><div class="text-lg text-slate-500 mt-1" dir="rtl">${item.ar}</div></div>
+            ${icon('arrow-up-right', 'h-6 w-6 text-slate-400')}
+          </div>
+        </button>`).join('')}
+      </div>
+    </section>
+    <section class="bg-ink rounded-3xl shadow-soft p-8 text-white min-h-[400px] flex flex-col justify-between">
+      <div>
+        <div class="flex items-center gap-2 text-teal-300 text-lg font-semibold">${icon('ticket', 'h-6 w-6')} Latest issued ticket</div>
+        <div class="mt-12 text-center">
+          ${last ? `<div class="text-slate-300 text-lg">${esc(destination(last.service).label)} · ${fmt(last.created)}</div><div class="ticket-number ticket-number-lg mx-auto mt-6">${last.code}</div><div class="mt-6">${statusPill(last.status)}</div>` : `<div class="h-48 flex items-center justify-center text-slate-400 text-lg">No ticket issued yet.</div>`}
+        </div>
+      </div>
+      <div class="flex gap-3 mt-8">
+        ${last ? btn('Print ticket', 'print-ticket', 'bg-white/10 text-white hover:bg-white/20 flex-1 py-4 text-lg', 'printer') : ''}
+        ${!kioskFullscreen ? btn('View queue', 'go-queues', 'bg-teal text-white hover:bg-teal-700 flex-1 py-4 text-lg', 'list-ordered') : ''}
+      </div>
+    </section>
+  </div>
+  </div>`;
 }
 function ticketRow(patient, showAssignment = true) {
   const assigned = userById(patient.assignedTo);
@@ -245,6 +305,9 @@ function sessions() {
   const mine = state.sessions.filter(session => session.userId === user.id).sort((a, b) => new Date(b.start) - new Date(a.start));
   const current = activeSession(user.id);
   const late = mine.reduce((sum, session) => sum + (session.lateMinutes || 0), 0);
+  if (!current && user.role !== 'Manager' && user.role !== 'Receptionist') {
+    return `<div class="session-start-page"><div class="session-start-brand"><div class="h-14 w-14 rounded-2xl bg-white flex items-center justify-center overflow-hidden p-1 shadow-soft"><img src="eha-logo-mark.png" alt="EHA" class="h-full w-full object-contain" /></div><div><div class="font-bold text-xl">PFC Operations</div><div class="text-xs text-slate-400 uppercase tracking-widest">${esc(user.org || ORG_DEFAULT)}</div></div></div><div class="session-start-card"><div class="h-20 w-20 rounded-3xl bg-teal/10 text-teal flex items-center justify-center mx-auto">${icon('play', 'h-10 w-10')}</div><p class="text-teal font-semibold text-sm mt-7">${esc(user.dept)} station</p><h1 class="text-4xl font-bold mt-2">Start your session</h1><p class="text-slate-500 text-lg mt-4 max-w-md mx-auto">Welcome, ${esc(user.name)}. Start your shift to become available and receive patients. Your start time and lateness will be recorded automatically.</p><div class="grid grid-cols-2 gap-3 max-w-sm mx-auto mt-7 text-left"><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Shift starts</div><b class="block mt-1">${esc(user.shift || '08:00')}</b></div><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Station status</div><b class="block mt-1 text-slate-500">Unavailable</b></div></div><button data-action="session-toggle" class="mt-8 rounded-2xl bg-teal text-white px-10 py-4 text-lg font-bold hover:bg-teal-700 transition shadow-soft">Start working now ${icon('arrow-right')}</button><p class="text-xs text-slate-400 mt-5">You can pause or end the session at any time.</p></div></div>`;
+  }
   return `<div class="fade">${hero('Time & availability', 'My session', 'Start or end your station session and keep your availability visible to the whole routing system.', `${btn(user.availability === 'unavailable' ? 'Set available' : 'Set unavailable', 'availability-toggle', user.availability === 'unavailable' ? 'bg-teal text-white hover:bg-teal-700' : 'bg-white border border-slate-200 text-ink hover:border-orange-300', user.availability === 'unavailable' ? 'circle-check' : 'pause')}`)}<div class="grid lg:grid-cols-[.8fr_1.2fr] gap-5"><div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-6"><div class="flex items-center justify-between"><div><div class="text-sm text-slate-500">Current status</div><div class="text-2xl font-bold mt-2">${user.availability === 'unavailable' ? 'Unavailable' : 'Available'}</div></div>${availabilityPill(user)}</div><div class="grid grid-cols-2 gap-4 mt-8"><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Active session</div><div class="font-bold mt-2">${current ? fmtTime(current.start) : 'Not started'}</div></div><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Lateness this month</div><div class="font-bold mt-2 ${late ? 'text-orange-600' : 'text-emerald-600'}">${late} minutes</div></div></div><button data-action="session-toggle" class="w-full mt-7 rounded-xl bg-ink text-white px-4 py-3.5 font-semibold hover:bg-slate-800">${current ? 'End session' : 'Start session'} ${icon(current ? 'log-out' : 'play')}</button></div><div class="bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-5 border-b border-slate-100"><h2 class="font-bold">Recent attendance</h2><p class="text-sm text-slate-500 mt-1">Session start, end, and lateness are recorded for reporting.</p></div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-mist text-slate-500"><tr><th class="text-left p-4">Date</th><th class="text-left p-4">Started</th><th class="text-left p-4">Ended</th><th class="text-left p-4">Late</th></tr></thead><tbody>${mine.slice(0, 8).map(session => `<tr class="border-t border-slate-100"><td class="p-4">${new Date(session.start).toLocaleDateString()}</td><td class="p-4 font-semibold">${fmtTime(session.start)}</td><td class="p-4">${session.end ? fmtTime(session.end) : '<span class="text-teal font-semibold">Active</span>'}</td><td class="p-4">${session.lateMinutes ? `<span class="text-orange-600 font-semibold">${session.lateMinutes} min</span>` : '<span class="text-emerald-600">On time</span>'}</td></tr>`).join('') || '<tr><td colspan="4" class="p-8 text-center text-slate-400">No session history yet.</td></tr>'}</tbody></table></div></div></div></div>`;
 }
 function reportRows() {
@@ -457,6 +520,8 @@ function handleAction(action) {
   else if (action === 'availability-toggle') { const user = currentUser(); setAvailability(user, user.availability === 'unavailable' ? 'available' : 'unavailable'); return; }
   else if (action === 'export-pdf') { exportPDF(); return; }
   else if (action === 'print-ticket') { printTicket(); return; }
+  else if (action === 'kiosk-enter') { kioskFullscreen = true; shell(); }
+  else if (action === 'kiosk-exit') { kioskFullscreen = false; shell(); }
   else if (/^patient-(done|late|transfer)-\d+$/.test(action)) { const [, type, code] = action.match(/^patient-(done|late|transfer)-(\d+)$/); processPatient(type, Number(code)); return; }
   else return;
   render();
@@ -487,7 +552,7 @@ document.getElementById('loginForm').onsubmit = event => {
   if (!user) return toast('Invalid username or password.', 'error');
   state.currentUser = user;
   save();
-  page = user.setup ? 'kiosk' : 'overview';
+  page = user.setup ? 'kiosk' : (user.role !== 'Manager' && user.role !== 'Receptionist' && !activeSession(user.id) ? 'sessions' : 'overview');
   shell(); render();
 };
 document.getElementById('signupForm').onsubmit = event => {
@@ -497,7 +562,7 @@ document.getElementById('signupForm').onsubmit = event => {
   if (state.users.some(user => user.username === values.suUser || user.id === values.suId)) return toast('Username or staff ID already exists.', 'error');
   const user = { name: values.suName, id: values.suId, org: values.suOrg, dept: values.suDept, role: values.suRole, shift: values.suShift || '08:00', email: values.suEmail, username: values.suUser, password: values.suPass, availability: 'unavailable' };
   if (user.dept === 'CMO') user.cmoSlot = state.users.filter(item => item.dept === 'CMO').length + 1;
-  state.users.push(user); state.currentUser = user; save(); page = user.role === 'Receptionist' ? 'kiosk' : 'overview'; shell(); render(); toast('Account created. Start a session when you are ready.');
+  state.users.push(user); state.currentUser = user; save(); page = user.role === 'Receptionist' ? 'kiosk' : 'sessions'; shell(); render(); toast('Account created. Start a session when you are ready.');
 };
 document.getElementById('showSignup').onclick = () => { document.getElementById('loginForm').classList.add('hidden'); document.getElementById('signupForm').classList.remove('hidden'); document.getElementById('authTitle').textContent = 'Create your account'; document.getElementById('authSubtitle').textContent = 'Choose your organization and station before you start serving.'; };
 document.getElementById('showLogin').onclick = () => { document.getElementById('signupForm').classList.add('hidden'); document.getElementById('loginForm').classList.remove('hidden'); document.getElementById('authTitle').textContent = 'Welcome back'; document.getElementById('authSubtitle').textContent = 'Sign in to manage your station and queues.'; };
