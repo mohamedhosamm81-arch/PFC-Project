@@ -106,7 +106,7 @@ try {
 let kioskCountdownTimer = null;
 
 const ACCESS = {
-  Manager: ['overview', 'displays', 'reports', 'activity', 'admin'],
+  Manager: ['overview', 'displays', 'reports', 'analytics', 'activity', 'admin'],
   Receptionist: ['overview', 'kiosk', 'queues', 'sessions', 'activity'],
   Doctor: ['overview', 'queues', 'sessions', 'activity'],
   Employee: ['overview', 'queues', 'sessions', 'activity']
@@ -181,12 +181,12 @@ function toast(message, type = 'success') {
   setTimeout(() => el.remove(), 3400);
 }
 function pageTitle(target) {
-  return ({ overview: 'Operations overview', kiosk: 'Screen ticket desk', queues: 'Queues & patient routing', displays: 'Live display boards', sessions: 'My session', reports: 'Reports & attendance', activity: 'Action sheet', admin: 'Admin dashboard' }[target] || 'Operations overview');
+  return ({ overview: 'Operations overview', kiosk: 'Screen ticket desk', queues: 'Queues & patient routing', displays: 'Live display boards', sessions: 'My session', reports: 'Reports & attendance', activity: 'Action sheet', admin: 'Admin dashboard', analytics: 'Operational analytics' }[target] || 'Operations overview');
 }
 function nav() {
   const all = [
     ['overview', 'layout-dashboard', 'Workspace'], ['kiosk', 'ticket', 'Issue ticket'], ['queues', 'list-ordered', 'My queue'],
-    ['displays', 'monitor-smartphone', 'Live displays'], ['sessions', 'clock-3', 'My session'], ['reports', 'chart-no-axes-combined', 'Reports'],
+    ['displays', 'monitor-smartphone', 'Live displays'], ['sessions', 'clock-3', 'My session'], ['reports', 'chart-no-axes-combined', 'Reports'], ['analytics', 'chart-column-big', 'Analytics'],
     ['activity', 'table-2', 'Action sheet'], ['admin', 'shield-check', 'Admin dashboard']
   ];
   const items = all.filter(([target]) => canAccess(target));
@@ -343,6 +343,42 @@ function reportRows() {
     return { user, records, active, minutes, served };
   });
 }
+function analyticsMetrics() {
+  const user = currentUser();
+  const patients = scopedPatients(user);
+  const eventTime = (patient, names) => { const item = (patient.history || []).find(entry => names.includes(entry.event)); return item?.at ? new Date(item.at) : null; };
+  const rows = patients.map(patient => {
+    const called = eventTime(patient, ['Called']);
+    const done = eventTime(patient, ['Done']);
+    const wait = called ? Math.max(0, (called - new Date(patient.created)) / 60000) : null;
+    const service = called && done ? Math.max(0, (done - called) / 60000) : null;
+    return { patient, wait, service };
+  });
+  const average = values => values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
+  const waitingValues = rows.filter(row => row.wait !== null && row.patient.status !== 'Abandoned').map(row => row.wait);
+  const serviceValues = rows.filter(row => row.service !== null).map(row => row.service);
+  const abandoned = rows.filter(row => row.patient.status === 'Abandoned' || (row.patient.history || []).some(entry => entry.event === 'Abandoned')).length;
+  const peaks = {};
+  patients.forEach(patient => { const hour = new Date(patient.created).getHours(); peaks[hour] = (peaks[hour] || 0) + 1; });
+  const peak = Object.entries(peaks).sort((a, b) => b[1] - a[1])[0];
+  const departments = managerDestinations(user).map(item => {
+    const departmentPatients = patients.filter(patient => patient.branch === item.key);
+    const waits = departmentPatients.map(patient => rows.find(row => row.patient === patient)?.wait).filter(value => value !== null && value !== undefined);
+    const services = departmentPatients.map(patient => rows.find(row => row.patient === patient)?.service).filter(value => value !== null && value !== undefined);
+    return { item, issued: departmentPatients.length, served: departmentPatients.filter(patient => patient.status === 'Done').length, waiting: departmentPatients.filter(patient => patient.status === 'Waiting').length, abandoned: departmentPatients.filter(patient => patient.status === 'Abandoned').length, wait: average(waits), service: average(services) };
+  });
+  const workload = employees(user).map(employee => ({ employee, served: patients.filter(patient => patient.assignedTo === employee.id && patient.status === 'Done').length, active: patients.filter(patient => patient.assignedTo === employee.id && patient.status !== 'Done').length }));
+  return { patients, averageWait: average(waitingValues), averageService: average(serviceValues), abandoned, peak: peak ? `${String(peak[0]).padStart(2, '0')}:00` : '—', peakCount: peak ? peak[1] : 0, departments, workload };
+}
+function analytics() {
+  const user = currentUser();
+  const data = analyticsMetrics();
+  const maxDept = Math.max(1, ...data.departments.map(row => row.issued));
+  const maxWork = Math.max(1, ...data.workload.map(row => row.served));
+  const departmentRows = data.departments.map(row => `<div class="rounded-2xl border border-slate-100 p-4"><div class="flex items-start justify-between gap-3"><div><div class="font-semibold">${esc(row.item.label)}</div><div class="text-xs text-slate-400" dir="rtl">${esc(row.item.ar || '')}</div></div><span class="text-xs rounded-full bg-mist px-2.5 py-1 text-slate-500">${row.issued} issued</span></div><div class="h-2 rounded-full bg-slate-100 mt-4 overflow-hidden"><div class="h-full bg-teal rounded-full" style="width:${Math.round((row.issued / maxDept) * 100)}%"></div></div><div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 text-sm"><div><div class="text-xs text-slate-400">Served</div><b>${row.served}</b></div><div><div class="text-xs text-slate-400">Waiting</div><b>${row.waiting}</b></div><div><div class="text-xs text-slate-400">Avg wait</div><b>${row.wait} min</b></div><div><div class="text-xs text-slate-400">Avg service</div><b>${row.service} min</b></div></div></div>`).join('') || '<div class="p-6 text-center text-slate-400">No department activity yet.</div>';
+  const workloadRows = data.workload.map(row => `<div class="rounded-2xl bg-mist p-4"><div class="flex justify-between gap-3"><div><div class="font-semibold">${esc(row.employee.name)}</div><div class="text-xs text-slate-500 mt-1">${esc(displayName(row.employee.dept))}</div></div><b>${row.served} served</b></div><div class="h-2 rounded-full bg-white mt-4 overflow-hidden"><div class="h-full bg-violet-500 rounded-full" style="width:${Math.round((row.served / maxWork) * 100)}%"></div></div><div class="text-xs text-slate-500 mt-2">${row.active} active ticket${row.active === 1 ? '' : 's'}</div></div>`).join('') || '<div class="p-6 text-center text-slate-400">No employee workload data yet.</div>';
+  return `<div class="fade">${hero('Manager insights', 'Operational analytics', `Measure queue performance and workforce workload for ${esc(user.globalAdmin ? 'all organizations' : (user.org || ORG_DEFAULT))}.`, '')}<div class="grid sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-5">${statCard('Average waiting', `${data.averageWait} min`, 'Issued to first call', 'clock-3', 'orange')}${statCard('Average service', `${data.averageService} min`, 'First call to completion', 'timer', 'teal')}${statCard('Abandoned tickets', data.abandoned, 'Tickets marked abandoned', 'user-round-minus', 'violet')}${statCard('Peak hour', data.peak, `${data.peakCount} tickets issued`, 'chart-no-axes-column-increasing', 'blue')}${statCard('Tickets analyzed', data.patients.length, 'Within your scope', 'database', 'slate')}</div><div class="grid xl:grid-cols-[1.15fr_.85fr] gap-5"><section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6"><div class="flex items-start justify-between gap-3"><div><h2 class="font-bold">Daily department performance</h2><p class="text-sm text-slate-500 mt-1">Issued, served, waiting, abandoned, and average handling times.</p></div><span class="live-badge">LIVE INSIGHT</span></div><div class="space-y-3 mt-5">${departmentRows}</div></section><section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6"><div><h2 class="font-bold">Employee workload</h2><p class="text-sm text-slate-500 mt-1">Completed tickets and active assignments by employee.</p></div><div class="space-y-3 mt-5">${workloadRows}</div></section></div></div>`;
+}
 function reports() {
   const rows = reportRows();
   const totalLate = rows.reduce((sum, row) => sum + row.minutes, 0);
@@ -381,7 +417,7 @@ function render() {
   if (!state.currentUser) return;
   if (!canAccess(page)) page = state.currentUser.role === 'Receptionist' ? 'kiosk' : 'overview';
   document.getElementById('pageKicker').textContent = pageTitle(page);
-  const views = { overview, kiosk, queues, displays, sessions, reports, activity, admin };
+  const views = { overview, kiosk, queues, displays, sessions, reports, analytics, activity, admin };
   document.getElementById('main').innerHTML = (views[page] || overview)();
   nav();
   bindPage();
