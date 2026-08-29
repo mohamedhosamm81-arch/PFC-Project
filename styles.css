@@ -35,3 +35,36 @@ input:focus, select:focus { border-color: rgba(15, 118, 110, .48); box-shadow: 0
 .session-start-page { position: fixed; inset: 0; z-index: 100; background: var(--mist); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; }
 .session-start-brand { position: absolute; top: 2.5rem; left: 2.5rem; display: flex; align-items: center; gap: 1rem; }
 .session-start-card { background: #fff; border-radius: 3rem; padding: 4rem 2rem; text-align: center; box-shadow: var(--lift); width: 100%; max-width: 720px; animation: rise .4s ease both; }
+
+.kiosk-success-screen {
+  background: radial-gradient(circle at 50% 0%, rgba(15, 118, 110, .12), transparent 42%), #f4f8f9;
+}
+.kiosk-countdown-wrap {
+  display: inline-flex;
+  min-width: 190px;
+  flex-direction: column;
+  align-items: center;
+  border-radius: 1.25rem;
+  background: #f0fdfa;
+  padding: 1rem 1.5rem 1.25rem;
+}
+.kiosk-countdown {
+  display: grid;
+  height: 5rem;
+  width: 5rem;
+  place-items: center;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #fff;
+  font-size: 2.35rem;
+  font-weight: 800;
+  box-shadow: 0 0 0 10px rgba(15, 118, 110, .1);
+  animation: kiosk-pulse 1s ease-in-out infinite;
+}
+@keyframes kiosk-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kiosk-countdown { animation: none; }
+}

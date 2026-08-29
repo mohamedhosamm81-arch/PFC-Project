@@ -103,6 +103,7 @@ try {
   let displayMode = 'door';
   let reportPeriod = 'month';
   let kioskFullscreen = false;
+let kioskCountdownTimer = null;
 
 const ACCESS = {
   Manager: ['overview', 'displays', 'reports', 'activity', 'admin'],
@@ -445,7 +446,30 @@ function issueTicket(service) {
   save();
   showTicketModal(patient, assigned);
 }
+function showKioskTicketSuccess(patient) {
+  const item = destination(patient.service);
+  const main = document.getElementById('main');
+  if (!main) return;
+  main.innerHTML = `<div class="kiosk-success-screen min-h-[calc(100vh-4rem)] flex items-center justify-center p-5 sm:p-8"><div class="w-full max-w-2xl text-center"><div class="flex justify-end mb-5"><button data-action="kiosk-exit" class="rounded-xl bg-white border border-slate-200 text-ink px-4 py-2.5 font-semibold hover:border-teal">Exit full screen ${icon('minimize')}</button></div><div class="bg-white rounded-[2rem] border border-emerald-100 shadow-lift p-8 sm:p-12"><div class="mx-auto h-20 w-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">${icon('check', 'h-10 w-10')}</div><p class="text-emerald-700 font-bold tracking-[.18em] uppercase text-sm mt-7">Ticket issued successfully</p><h1 class="text-5xl sm:text-7xl font-black text-ink mt-4">#${patient.code}</h1><p class="text-xl sm:text-2xl font-bold text-ink mt-5">${item.label} · ${item.ar}</p><p class="text-slate-500 mt-3">Your ticket has been printed. Please keep it and follow the display.</p><div class="kiosk-countdown-wrap mt-9"><div id="kioskCountdown" class="kiosk-countdown">3</div><div class="text-sm font-semibold text-slate-500 mt-3">Returning for the next patient in <span id="kioskCountdownText">3</span> seconds</div></div></div></div></div>`;
+  bindPage();
+  lucide.createIcons();
+  let remaining = 3;
+  kioskCountdownTimer = setInterval(() => {
+    remaining -= 1;
+    const number = document.getElementById('kioskCountdown');
+    const text = document.getElementById('kioskCountdownText');
+    if (number) number.textContent = String(Math.max(remaining, 0));
+    if (text) text.textContent = String(Math.max(remaining, 0));
+    if (remaining <= 0) {
+      clearInterval(kioskCountdownTimer);
+      kioskCountdownTimer = null;
+      render();
+      setTimeout(() => printTicket(patient), 120);
+    }
+  }, 1000);
+}
 function showTicketModal(patient, assigned) {
+  if (kioskFullscreen) return showKioskTicketSuccess(patient);
   const item = destination(patient.service);
   const modal = document.createElement('div');
   modal.id = 'ticketModal';
@@ -549,7 +573,7 @@ function handleAction(action) {
   else if (action === 'export-pdf') { exportPDF(); return; }
   else if (action === 'print-ticket') { printTicket(); return; }
   else if (action === 'kiosk-enter') { kioskFullscreen = true; shell(); }
-  else if (action === 'kiosk-exit') { kioskFullscreen = false; shell(); }
+  else if (action === 'kiosk-exit') { if (kioskCountdownTimer) { clearInterval(kioskCountdownTimer); kioskCountdownTimer = null; } kioskFullscreen = false; shell(); }
   else if (/^patient-(done|late|transfer)-\d+$/.test(action)) { const [, type, code] = action.match(/^patient-(done|late|transfer)-(\d+)$/); processPatient(type, Number(code)); return; }
   else return;
   render();
