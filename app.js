@@ -102,7 +102,7 @@ function normalizeState(saved) {
   merged.notifications = saved.notifications || [];
   merged.users = (saved.users || fresh.users).map(user => ({ availability: 'available', org: ORG_DEFAULT, ...user, globalAdmin: user.globalAdmin ?? (user.username === 'manager') }));
   merged.sessions = (saved.sessions || fresh.sessions).map(session => ({ ...session, lateMinutes: latenessMinutes(session.start, session.shift) }));
-  merged.patients = (saved.patients || fresh.patients).map(patient => ({ late: false, history: [], assignedTo: null, org: ORG_DEFAULT, ...patient }));
+  merged.patients = (saved.patients || fresh.patients).map(patient => ({ late: false, history: [], assignedTo: null, org: ORG_DEFAULT, userType: 'Regular', ...patient }));
   merged.actions = saved.actions || fresh.actions;
   merged.routing = { ...fresh.routing, ...(saved.routing || {}) };
   merged.nextCode = Math.min(999, Math.max(1, Math.floor(Number(saved.nextCode) || 1)));
@@ -117,11 +117,12 @@ try {
 } catch (error) {
   state = createSeed();
 }
-  let page = 'overview';
-  let displayMode = 'door';
-  let reportPeriod = 'month';
-  let managerFilters = { organization: 'all', department: 'all' };
-  let kioskFullscreen = false;
+let page = 'overview';
+let displayMode = 'door';
+let reportPeriod = 'month';
+let managerFilters = { organization: 'all', department: 'all' };
+let kioskUserType = null;
+let kioskFullscreen = false;
 let kioskCountdownTimer = null;
 
 const ACCESS = {
@@ -335,12 +336,14 @@ function kiosk() {
   const kioskActions = kioskFullscreen ? btn('Exit full screen', 'kiosk-exit', 'bg-ink text-white hover:bg-slate-800 px-5 py-3', 'minimize') : btn('Enter kiosk mode', 'kiosk-enter', 'bg-teal text-white hover:bg-teal-700', 'maximize');
   const kioskDestinations = organizationDestinations(currentUser().org).filter(item => item.key !== 'Cashier');
   const kioskClass = kioskFullscreen ? 'fixed inset-0 z-[100] bg-mist p-6 sm:p-8 overflow-y-auto' : 'fade max-w-6xl mx-auto';
+  const userTypePanel = `<div class="mb-6 rounded-2xl border border-teal-100 bg-teal/[.06] p-5"><div class="flex items-start gap-3"><div class="h-10 w-10 rounded-xl bg-teal/10 text-teal flex items-center justify-center">${icon('accessibility')}</div><div><h2 class="font-bold text-xl">Please choose visitor type</h2><p class="text-slate-500 mt-1">يرجى اختيار نوع المستخدم قبل اختيار الخدمة</p></div></div><div class="grid sm:grid-cols-2 gap-3 mt-5"><button data-action="kiosk-type-Regular" class="rounded-2xl border-2 ${kioskUserType === 'Regular' ? 'border-teal bg-white' : 'border-transparent bg-white/70'} p-5 text-left hover:border-teal transition"><div class="font-bold text-lg">Regular</div><div class="text-sm text-slate-500 mt-1">مستخدم عادي</div></button><button data-action="kiosk-type-Disability" class="rounded-2xl border-2 ${kioskUserType === 'Disability' ? 'border-teal bg-white' : 'border-transparent bg-white/70'} p-5 text-left hover:border-teal transition"><div class="font-bold text-lg">Disability</div><div class="text-sm text-slate-500 mt-1">ذوي الإعاقة</div></button></div></div>`;
   const destinationPanel = `<section class="bg-white border border-slate-100 rounded-3xl shadow-soft p-5 sm:p-7 ${kioskFullscreen ? 'max-w-6xl mx-auto' : ''}">
-    <div class="flex items-center justify-between gap-3 mb-5">
+    ${userTypePanel}
+    <div class="flex items-center justify-between gap-3 mb-5 ${kioskUserType ? '' : 'opacity-50'}">
       <div><h2 class="font-bold text-2xl">Where would you like to go?</h2><p class="text-lg text-slate-500 mt-1">من فضلك اختر الوجهة التي تريد الذهاب إليها</p></div>
-      <span class="live-badge">LIVE ROUTING</span>
+      <span class="live-badge">${kioskUserType ? esc(kioskUserType.toUpperCase()) : 'CHOOSE TYPE FIRST'}</span>
     </div>
-    <div class="grid sm:grid-cols-2 ${kioskFullscreen ? 'xl:grid-cols-3' : ''} gap-4">
+    <div class="grid sm:grid-cols-2 ${kioskFullscreen ? 'xl:grid-cols-3' : ''} gap-4 ${kioskUserType ? '' : 'opacity-50 pointer-events-none'}">
       ${kioskDestinations.map(item => `<button data-service="${item.key}" class="destination-button rounded-2xl p-6 text-left border border-slate-100 hover:border-teal/40 hover:-translate-y-0.5 transition">
         <div class="h-16 w-16 rounded-2xl ${toneClasses(item.tone)} flex items-center justify-center">${icon(item.icon, 'h-8 w-8')}</div>
         <div class="mt-6 flex items-end justify-between gap-3">
@@ -586,6 +589,7 @@ function sessionToggle() {
   save(); shell(); render();
 }
 function issueTicket(service) {
+  if (!kioskUserType) return toast('Choose Regular or Disability before selecting a service.', 'error');
   let code = Number(state.nextCode);
   if (!Number.isFinite(code)) code = 1;
   code = Math.min(999, Math.max(1, Math.floor(code)));
@@ -596,19 +600,20 @@ function issueTicket(service) {
     attempts += 1;
   }
   state.nextCode = code === 999 ? 1 : code + 1;
-  const patient = { code, service, branch: service, org: currentUser().org || ORG_DEFAULT, status: 'Waiting', late: false, created: now(), assignedTo: null, history: [{ at: now(), event: 'Issued', by: currentUser().name, destination: service }] };
+  const patient = { code, service, branch: service, org: currentUser().org || ORG_DEFAULT, userType: kioskUserType || 'Regular', status: 'Waiting', late: false, created: now(), assignedTo: null, history: [{ at: now(), event: 'Issued', by: currentUser().name, destination: service, userType: kioskUserType || 'Regular' }] };
   const assigned = service === 'CMO' ? null : routePatient(patient, service);
   state.patients.push(patient);
   state.lastTicket = patient;
   state.actions.push({ user: currentUser().name, userId: currentUser().id, dept: currentUser().dept, org: currentUser().org || ORG_DEFAULT, type: 'Issue', code, time: now(), to: service });
   save();
   showTicketModal(patient, assigned);
+  kioskUserType = null;
 }
 function showKioskTicketSuccess(patient) {
   const item = destination(patient.service);
   const main = document.getElementById('main');
   if (!main) return;
-  main.innerHTML = `<div class="kiosk-success-screen min-h-[calc(100vh-4rem)] flex items-center justify-center p-5 sm:p-8"><div class="w-full max-w-2xl text-center"><div class="flex justify-end mb-5"><button data-action="kiosk-exit" class="rounded-xl bg-white border border-slate-200 text-ink px-4 py-2.5 font-semibold hover:border-teal">Exit full screen ${icon('minimize')}</button></div><div class="bg-white rounded-[2rem] border border-emerald-100 shadow-lift p-8 sm:p-12"><div class="mx-auto h-20 w-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">${icon('check', 'h-10 w-10')}</div><p class="text-emerald-700 font-bold tracking-[.18em] uppercase text-sm mt-7">Ticket issued successfully</p><h1 class="text-5xl sm:text-7xl font-black text-ink mt-4">#${patient.code}</h1><p class="text-xl sm:text-2xl font-bold text-ink mt-5">${item.label} · ${item.ar}</p><p class="text-slate-500 mt-3">Your ticket has been printed. Please keep it and follow the display.</p><div class="kiosk-countdown-wrap mt-9"><div id="kioskCountdown" class="kiosk-countdown">3</div><div class="text-sm font-semibold text-slate-500 mt-3">Returning for the next patient in <span id="kioskCountdownText">3</span> seconds</div></div></div></div></div>`;
+  main.innerHTML = `<div class="kiosk-success-screen min-h-[calc(100vh-4rem)] flex items-center justify-center p-5 sm:p-8"><div class="w-full max-w-2xl text-center"><div class="flex justify-end mb-5"><button data-action="kiosk-exit" class="rounded-xl bg-white border border-slate-200 text-ink px-4 py-2.5 font-semibold hover:border-teal">Exit full screen ${icon('minimize')}</button></div><div class="bg-white rounded-[2rem] border border-emerald-100 shadow-lift p-8 sm:p-12"><div class="mx-auto h-20 w-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">${icon('check', 'h-10 w-10')}</div><p class="text-emerald-700 font-bold tracking-[.18em] uppercase text-sm mt-7">Ticket issued successfully</p><h1 class="text-5xl sm:text-7xl font-black text-ink mt-4">#${patient.code}</h1><p class="text-xl sm:text-2xl font-bold text-ink mt-5">${item.label} · ${item.ar}</p><span class="inline-flex mt-3 rounded-full bg-teal/10 text-teal px-3 py-1 text-sm font-bold">${esc(patient.userType)}</span><p class="text-slate-500 mt-3">Your ticket has been printed. Please keep it and follow the display.</p><div class="kiosk-countdown-wrap mt-9"><div id="kioskCountdown" class="kiosk-countdown">3</div><div class="text-sm font-semibold text-slate-500 mt-3">Returning for the next patient in <span id="kioskCountdownText">3</span> seconds</div></div></div></div></div>`;
   bindPage();
   lucide.createIcons();
   let remaining = 3;
@@ -632,9 +637,9 @@ function showTicketModal(patient, assigned) {
   const modal = document.createElement('div');
   modal.id = 'ticketModal';
   modal.className = 'fixed inset-0 z-[80] flex items-center justify-center p-4 modal-backdrop';
-  modal.innerHTML = `<div class="bg-white rounded-3xl shadow-lift max-w-md w-full overflow-hidden"><div class="bg-ink text-white p-6 text-center"><div class="text-teal-300 text-sm font-semibold">${item.label} · ${item.ar}</div><div class="ticket-number ticket-number-lg mx-auto mt-5">${patient.code}</div><div class="mt-4">${statusPill(patient.status)}</div></div><div class="p-6"><div class="rounded-2xl bg-mist p-4 text-sm text-slate-600"><div class="flex justify-between gap-3"><span>Assigned employee</span><b class="text-ink">${assigned ? esc(assigned.name) : patient.branch === 'CMO' ? 'Shared Clinic queue' : 'Waiting for an available employee'}</b></div><div class="flex justify-between gap-3 mt-3"><span>Queue position</span><b class="text-ink">${state.patients.filter(p => p.branch === patient.branch && (p.org || ORG_DEFAULT) === (patient.org || ORG_DEFAULT) && p.status === 'Waiting').length}</b></div></div><p class="text-center text-sm text-slate-500 mt-5">Please keep this unique code and follow the live display for ${item.label}.</p><div class="flex gap-2 mt-6">${btn('Print ticket', 'modal-print', 'flex-1 bg-teal text-white hover:bg-teal-700', 'printer')}${btn('Close', 'close-modal', 'flex-1 bg-white text-ink border border-slate-200 hover:border-teal')}</div></div></div>`;
+  modal.innerHTML = `<div class="bg-white rounded-3xl shadow-lift max-w-md w-full overflow-hidden"><div class="bg-ink text-white p-6 text-center"><div class="text-teal-300 text-sm font-semibold">${item.label} · ${item.ar}</div><div class="ticket-number ticket-number-lg mx-auto mt-5">${patient.code}</div><div class="mt-4">${statusPill(patient.status)}</div></div><div class="p-6"><div class="rounded-2xl bg-mist p-4 text-sm text-slate-600"><div class="flex justify-between gap-3"><span>Visitor type</span><b class="text-ink">${esc(patient.userType)}</b></div><div class="flex justify-between gap-3 mt-3"><span>Assigned employee</span><b class="text-ink">${assigned ? esc(assigned.name) : patient.branch === 'CMO' ? 'Shared Clinic queue' : 'Waiting for an available employee'}</b></div><div class="flex justify-between gap-3 mt-3"><span>Queue position</span><b class="text-ink">${state.patients.filter(p => p.branch === patient.branch && (p.org || ORG_DEFAULT) === (patient.org || ORG_DEFAULT) && p.status === 'Waiting').length}</b></div></div><p class="text-center text-sm text-slate-500 mt-5">Please keep this unique code and follow the live display for ${item.label}.</p><div class="flex gap-2 mt-6">${btn('Print ticket', 'modal-print', 'flex-1 bg-teal text-white hover:bg-teal-700', 'printer')}${btn('Close', 'close-modal', 'flex-1 bg-white text-ink border border-slate-200 hover:border-teal')}</div></div></div>`;
   document.body.appendChild(modal);
-  modal.querySelector('[data-action="close-modal"]').onclick = () => modal.remove();
+  modal.querySelector('[data-action="close-modal"]').onclick = () => { modal.remove(); kioskUserType = null; render(); };
   modal.querySelector('[data-action="modal-print"]').onclick = () => printTicket(patient);
   lucide.createIcons();
 }
@@ -643,7 +648,7 @@ function printTicket(patient = state.lastTicket) {
   const item = destination(patient.service);
   const popup = window.open('', '_blank', 'width=500,height=700');
   if (!popup) return toast('Allow pop-ups to print the patient ticket.', 'error');
-  popup.document.write(`<html><head><title>PFC Ticket #${patient.code}</title><style>body{font-family:Arial,sans-serif;padding:36px;text-align:center;color:#10233f}h1{font-size:16px;margin:0;color:#0f766e}p{color:#667085}.code{font-size:92px;font-weight:800;letter-spacing:4px;margin:36px 0}.line{border-top:1px dashed #cbd5e1;margin:24px 0;padding-top:18px}</style></head><body><h1>Egypt Healthcare Authority · PFC</h1><p>${esc(item.label)} · ${esc(item.ar)}</p><div class="code">${patient.code}</div><div class="line">Please wait for your number on the ${esc(item.label)} display.</div><p>Issued ${fmt(patient.created)}</p><script>window.print()<\/script></body></html>`);
+  popup.document.write(`<html><head><title>PFC Ticket #${patient.code}</title><style>body{font-family:Arial,sans-serif;padding:36px;text-align:center;color:#10233f}h1{font-size:16px;margin:0;color:#0f766e}p{color:#667085}.code{font-size:92px;font-weight:800;letter-spacing:4px;margin:36px 0}.line{border-top:1px dashed #cbd5e1;margin:24px 0;padding-top:18px}</style></head><body><h1>Egypt Healthcare Authority · PFC</h1><p>${esc(item.label)} · ${esc(item.ar)}</p><p>Visitor type: <b>${esc(patient.userType || 'Regular')}</b></p><div class="code">${patient.code}</div><div class="line">Please wait for your number on the ${esc(item.label)} display.</div><p>Issued ${fmt(patient.created)}</p><script>window.print()<\/script></body></html>`);
   popup.document.close();
 }
 function callNext() {
@@ -742,6 +747,7 @@ function handleAction(action) {
   else if (action === 'export-pdf') { exportPDF(); return; }
   else if (action === 'clear-manager-filters') { managerFilters = { organization: currentUser()?.globalAdmin ? 'all' : (currentUser()?.org || ORG_DEFAULT), department: 'all' }; render(); return; }
   else if (action === 'mark-notifications-read') { markNotificationsRead(); return; }
+  else if (action === 'kiosk-type-Regular' || action === 'kiosk-type-Disability') { kioskUserType = action.endsWith('Disability') ? 'Disability' : 'Regular'; render(); return; }
   else if (action === 'print-ticket') { printTicket(); return; }
   else if (action === 'kiosk-enter') { kioskFullscreen = true; shell(); }
   else if (action === 'kiosk-exit') { if (kioskCountdownTimer) { clearInterval(kioskCountdownTimer); kioskCountdownTimer = null; } kioskFullscreen = false; shell(); }
