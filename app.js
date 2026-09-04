@@ -9,7 +9,7 @@ const DESTINATIONS = [
   { key: 'Cashier', label: 'Cashier', ar: 'الخزينة', icon: 'wallet-cards', tone: 'slate' }
 ];
 const ORG_DEFAULT = 'وحدة طب أسرة العوامية';
-const ALL_ROLES = ['Employee', 'Doctor', 'Receptionist', 'Manager'];
+const ALL_ROLES = ['Employee', 'Doctor', 'Receptionist', 'Manager', 'Admin'];
 const BRANCHES = DESTINATIONS.map(d => d.key);
 const ATTENDANCE_GRACE_MINUTES = 15;
 const ORGANIZATION_DEPARTMENTS = ['Reception', 'CMO', 'Pharmacy', 'Laboratory', 'Radiology', 'Cashier'];
@@ -41,7 +41,7 @@ function latenessMinutes(start, shift = '08:00') {
 function createSeed() {
   const d = today();
   const users = [
-    { name: 'System Manager', id: 'ADM-001', dept: 'Administration', org: ORG_DEFAULT, email: 'manager@eha.gov.eg', username: 'manager', password: 'manager123', role: 'Manager', shift: '08:00', availability: 'available', globalAdmin: true },
+    { name: 'System Administrator', id: 'ADM-001', dept: 'Administration', org: ORG_DEFAULT, email: 'admin@eha.gov.eg', username: 'admin', password: 'admin123', role: 'Admin', shift: '08:00', availability: 'available', globalAdmin: true },
     { name: 'Reception Desk', id: 'REC-001', dept: 'Reception', org: ORG_DEFAULT, email: 'reception@eha.gov.eg', username: '2006159', password: '2005510', role: 'Receptionist', shift: '08:00', availability: 'available', setup: true },
     { name: 'Dr. Layla Hassan', id: 'DOC-101', dept: 'CMO', org: ORG_DEFAULT, email: 'layla@eha.gov.eg', username: 'doctor.layla', password: 'doctor123', role: 'Doctor', shift: '08:00', cmoSlot: 1, availability: 'available' },
     { name: 'Dr. Omar Nasser', id: 'DOC-102', dept: 'CMO', org: ORG_DEFAULT, email: 'omar@eha.gov.eg', username: 'doctor.omar', password: 'doctor123', role: 'Doctor', shift: '08:00', cmoSlot: 2, availability: 'available' },
@@ -101,6 +101,7 @@ function normalizeState(saved) {
   merged.rooms = (saved.rooms || fresh.rooms).map(room => ({ active: false, doctorId: null, specialty: '', updatedAt: now(), ...room }));
   merged.notifications = saved.notifications || [];
   merged.users = (saved.users || fresh.users).map(user => ({ availability: 'available', org: ORG_DEFAULT, ...user, globalAdmin: user.globalAdmin ?? (user.username === 'manager') }));
+  if (!merged.users.some(user => user.role === 'Admin')) merged.users.unshift({ name: 'System Administrator', id: 'ADM-001', dept: 'Administration', org: ORG_DEFAULT, email: 'admin@eha.gov.eg', username: 'admin', password: 'admin123', role: 'Admin', shift: '08:00', availability: 'available', globalAdmin: true });
   merged.sessions = (saved.sessions || fresh.sessions).map(session => ({ ...session, lateMinutes: latenessMinutes(session.start, session.shift) }));
   merged.patients = (saved.patients || fresh.patients).map(patient => ({ late: false, history: [], assignedTo: null, org: ORG_DEFAULT, userType: 'Regular', ...patient }));
   merged.actions = saved.actions || fresh.actions;
@@ -127,12 +128,14 @@ let kioskCountdownTimer = null;
 
 const ACCESS = {
   Manager: ['overview', 'displays', 'reports', 'analytics', 'activity', 'admin'],
+  Admin: ['overview', 'displays', 'reports', 'analytics', 'activity', 'admin'],
   Receptionist: ['overview', 'kiosk', 'queues', 'sessions', 'activity'],
   Doctor: ['overview', 'queues', 'sessions', 'activity'],
   Employee: ['overview', 'queues', 'sessions', 'activity']
 };
+const isManagerRole = user => user?.role === 'Manager' || user?.role === 'Admin';
 function organizationVisibility(user, target) {
-  if (!user || user.role === 'Manager' || user.globalAdmin || target === 'overview' || target === 'kiosk' || target === 'admin') return true;
+  if (!user || isManagerRole(user) || user.globalAdmin || target === 'overview' || target === 'kiosk' || target === 'admin') return true;
   const org = organizationByName(user.org || ORG_DEFAULT);
   const roleKey = user.role === 'Doctor' ? 'doctor' : 'facility';
   const configured = org?.visibility?.[roleKey];
@@ -161,14 +164,14 @@ function recordDepartment(record) {
   return record?.dept || record?.branch || record?.service || actor?.dept || patient?.branch || '';
 }
 function isInManagerScope(record, user = currentUser()) {
-  if (!user || user.role !== 'Manager') return true;
+  if (!user || !isManagerRole(user)) return true;
   if (!user.globalAdmin && recordOrganization(record) !== (user.org || ORG_DEFAULT)) return false;
   if (user.globalAdmin && managerFilters.organization !== 'all' && recordOrganization(record) !== managerFilters.organization) return false;
   if (managerFilters.department !== 'all' && recordDepartment(record) !== managerFilters.department) return false;
   return true;
 }
 const managerScope = (items, user = currentUser()) => items.filter(item => isInManagerScope(item, user));
-const managerOrganizations = (user = currentUser()) => user?.role === 'Manager' && !user.globalAdmin ? organizations().filter(org => org.name === (user.org || ORG_DEFAULT)) : organizations();
+const managerOrganizations = (user = currentUser()) => isManagerRole(user) && !user.globalAdmin ? organizations().filter(org => org.name === (user.org || ORG_DEFAULT)) : organizations();
 const managerFilterOrganizations = (user = currentUser()) => managerOrganizations(user);
 const managerFilterDepartments = (user = currentUser()) => {
   const selectedOrg = user?.globalAdmin && managerFilters.organization !== 'all' ? managerFilters.organization : null;
@@ -177,14 +180,14 @@ const managerFilterDepartments = (user = currentUser()) => {
   return allDestinations().filter(item => keys.has(item.key)).filter((item, index, all) => all.findIndex(candidate => candidate.key === item.key) === index);
 };
 const managerDestinations = (user = currentUser(), applyFilters = true) => {
-  const selectedOrg = user?.role === 'Manager' && user.globalAdmin && managerFilters.organization !== 'all' ? managerFilters.organization : null;
-  const list = user?.role === 'Manager' && !user.globalAdmin ? organizationDestinations(user.org) : selectedOrg ? organizationDestinations(selectedOrg) : allDestinations();
+  const selectedOrg = isManagerRole(user) && user.globalAdmin && managerFilters.organization !== 'all' ? managerFilters.organization : null;
+  const list = isManagerRole(user) && !user.globalAdmin ? organizationDestinations(user.org) : selectedOrg ? organizationDestinations(selectedOrg) : allDestinations();
   const unique = list.filter((item, index, all) => all.findIndex(candidate => candidate.key === item.key) === index);
-  return applyFilters && user?.role === 'Manager' && managerFilters.department !== 'all' ? unique.filter(item => item.key === managerFilters.department) : unique;
+  return applyFilters && isManagerRole(user) && managerFilters.department !== 'all' ? unique.filter(item => item.key === managerFilters.department) : unique;
 };
 function managerFilterBar() {
   const user = currentUser();
-  if (!user || user.role !== 'Manager') return '';
+  if (!user || !isManagerRole(user)) return '';
   const orgs = managerFilterOrganizations(user);
   const departments = managerFilterDepartments(user);
   const organizationOptions = user.globalAdmin ? [`<option value="all" ${managerFilters.organization === 'all' ? 'selected' : ''}>All organizations</option>`, ...orgs.map(org => `<option value="${esc(org.name)}" ${managerFilters.organization === org.name ? 'selected' : ''}>${esc(org.name)}</option>`)].join('') : orgs.map(org => `<option value="${esc(org.name)}" selected>${esc(org.name)}</option>`).join('');
@@ -200,7 +203,7 @@ const servedToday = () => state.patients.filter(patient => patient.status === 'D
 const totalServed = () => state.patients.filter(patient => patient.status === 'Done').length;
 const waitingFor = branch => state.patients.filter(patient => patient.branch === branch && patient.status === 'Waiting');
 const activeSession = userId => [...state.sessions].reverse().find(session => session.userId === userId && !session.end);
-const employees = () => managerScope(state.users.filter(user => user.role !== 'Manager' && user.dept !== 'Administration'));
+const employees = () => managerScope(state.users.filter(user => !['Manager', 'Admin'].includes(user.role) && user.dept !== 'Administration'));
 const organizations = () => state.organizations || [{ id: 'ORG-001', name: ORG_DEFAULT, type: 'Health unit', location: 'العوامية', departments: [...ORGANIZATION_DEPARTMENTS] }];
 const organizationByName = name => organizations().find(org => org.name === name);
 const roomsForOrganization = orgName => (state.rooms || []).filter(room => room.org === orgName);
@@ -266,7 +269,7 @@ function shell() {
   document.getElementById('authView').classList.add('hidden');
   document.getElementById('appView').classList.remove('hidden');
   const user = currentUser();
-  const sessionLocked = page === 'sessions' && user.role !== 'Manager' && user.role !== 'Receptionist' && !activeSession(user.id);
+  const sessionLocked = page === 'sessions' && !isManagerRole(user) && user.role !== 'Receptionist' && !activeSession(user.id);
   document.getElementById('topUser').textContent = user.name;
   document.getElementById('topDept').textContent = `${user.role} · ${user.id} · ${displayName(user.dept)}`;
   document.getElementById('topAvatar').textContent = initials(user.name);
@@ -302,24 +305,24 @@ function sessionSummary() {
 function stationConsole() {
   const user = currentUser();
   const session = activeSession(user.id);
-  if (!session && user.role !== 'Manager' && user.dept !== 'Administration') {
+  if (!session && !isManagerRole(user) && user.dept !== 'Administration') {
     return `<section class="bg-white rounded-3xl border border-slate-100 shadow-soft p-8 text-center max-w-2xl mx-auto my-12"><div class="h-20 w-20 rounded-3xl bg-teal/10 text-teal flex items-center justify-center mx-auto mb-6">${icon('play', 'h-10 w-10')}</div><h2 class="text-3xl font-bold">Start your session</h2><p class="text-slate-500 mt-4 text-lg">You must start a session to begin receiving patients at your station. Your start time and lateness will be recorded.</p><button data-action="session-toggle" class="mt-8 rounded-2xl bg-teal text-white px-8 py-4 text-lg font-bold hover:bg-teal-700 transition shadow-soft">Start working now ${icon('arrow-right')}</button></section>`;
   }
   const userOrg = user.org || ORG_DEFAULT;
   const myPatients = state.patients.filter(patient => user.dept === 'CMO' ? patient.assignedTo === user.id && patient.status === 'Serving' : patient.assignedTo === user.id && ['Waiting', 'Serving'].includes(patient.status));
   const serving = myPatients.find(patient => patient.status === 'Serving');
   const waiting = user.dept === 'CMO' ? state.patients.filter(patient => patient.branch === 'CMO' && (patient.org || ORG_DEFAULT) === userOrg && patient.status === 'Waiting' && !patient.assignedTo).length : myPatients.filter(patient => patient.status === 'Waiting').length;
-  const canProcess = user.role !== 'Manager' && user.dept !== 'Administration';
+  const canProcess = !isManagerRole(user) && user.dept !== 'Administration';
   if (!canProcess) return `<div class="notice-card border border-slate-200 bg-white rounded-2xl p-5 mb-5"><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl bg-teal/10 text-teal flex items-center justify-center">${icon('shield-check')}</div><div><b>Manager control center</b><p class="text-sm text-slate-500 mt-1">Use the admin dashboard and reports to supervise every destination and employee.</p></div></div></div>`;
   return `<section class="bg-white rounded-2xl border border-teal-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex flex-col xl:flex-row xl:items-center justify-between gap-5"><div><div class="flex items-center gap-2 text-teal text-sm font-semibold">${icon('scan-line')} ${user.dept === 'CMO' ? 'Clinic shared queue command center' : `${esc(displayName(user.dept))} command center`}</div><h2 class="text-xl font-bold mt-2">${serving ? `Now serving ticket #${serving.code}` : 'Ready for the next patient'}</h2><p class="text-sm text-slate-500 mt-1">Press <b>Next patient</b> to take the oldest eligible ticket. In Clinic, all three available employees draw from one shared organization queue.</p></div><div class="flex items-center gap-2">${availabilityPill(user)}<span class="rounded-xl bg-mist border border-slate-100 px-4 py-2.5 text-sm text-slate-600">${waiting} ${user.dept === 'CMO' ? 'in shared Clinic queue' : 'waiting for you'}</span></div></div>${serving ? `<div class="mt-5 rounded-2xl bg-teal/[.06] border border-teal/10 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"><div class="flex items-center gap-4"><div class="ticket-number ticket-number-sm">${serving.code}</div><div><div class="font-bold">Current patient</div><div class="text-sm text-slate-500">Issued ${fmt(serving.created)} · ${serving.late ? 'Marked late' : 'On time'}</div></div></div><div class="flex flex-wrap gap-2">${btn('Done', `patient-done-${serving.code}`, 'bg-emerald-600 text-white hover:bg-emerald-700', 'check')}${btn('Late', `patient-late-${serving.code}`, 'bg-yellow-400 text-ink hover:bg-yellow-500', 'clock-3')}${btn('Transfer', `patient-transfer-${serving.code}`, 'bg-white text-ink border border-slate-200 hover:border-teal', 'arrow-right-left')}${btn('Pause queue', 'availability-toggle', 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300', 'pause')}</div></div>` : `<div class="mt-5 flex flex-col sm:flex-row gap-3"><button data-action="next-patient" class="rounded-xl bg-teal text-white px-5 py-3.5 font-semibold hover:bg-teal-700 transition">Next patient ${icon('arrow-right')}</button>${btn('Pause queue', 'availability-toggle', 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300', 'pause')}<div class="text-sm text-slate-500 flex items-center gap-2 px-2">${icon('info')} ${user.availability === 'unavailable' ? 'Set yourself available to receive patients.' : 'No patient is currently assigned.'}</div></div>`}</section>`;
 }
 function overview() {
   const user = currentUser();
-  const scope = user.role === 'Manager' ? managerScope(state.patients, user) : state.patients.filter(patient => (patient.org || ORG_DEFAULT) === (user.org || ORG_DEFAULT) && (patient.branch === user.dept || patient.assignedTo === user.id));
+  const scope = isManagerRole(user) ? managerScope(state.patients, user) : state.patients.filter(patient => (patient.org || ORG_DEFAULT) === (user.org || ORG_DEFAULT) && (patient.branch === user.dept || patient.assignedTo === user.id));
   const active = scope.filter(patient => patient.status !== 'Done');
   const done = scope.filter(patient => patient.status === 'Done' && isToday(patient.created)).length;
   const late = scope.filter(patient => patient.late && patient.status !== 'Done').length;
-  const actions = user.role === 'Manager' ? [btn('Open reports', 'go-reports', 'bg-white border border-slate-200 text-ink hover:border-teal', 'chart-no-axes-combined')] : (user.role === 'Receptionist' ? [btn('Issue a ticket', 'go-kiosk', 'bg-teal text-white hover:bg-teal-700', 'ticket')] : []);
+  const actions = isManagerRole(user) ? [btn('Open reports', 'go-reports', 'bg-white border border-slate-200 text-ink hover:border-teal', 'chart-no-axes-combined')] : (user.role === 'Receptionist' ? [btn('Issue a ticket', 'go-kiosk', 'bg-teal text-white hover:bg-teal-700', 'ticket')] : []);
   const branchRows = managerDestinations(user).map(item => {
     const activeCount = active.filter(patient => patient.branch === item.key).length;
     const waiting = active.filter(patient => patient.branch === item.key && patient.status === 'Waiting').length;
@@ -328,8 +331,8 @@ function overview() {
     const percent = Math.min(100, 14 + (activeCount * 18));
     return `<div class="py-3 border-b border-slate-100 last:border-0"><div class="flex items-center justify-between gap-3"><div class="flex items-center gap-3"><div class="h-9 w-9 rounded-xl ${toneClasses(item.tone)} flex items-center justify-center">${icon(item.icon)}</div><div><div class="font-semibold text-sm">${item.label}</div><div class="text-xs text-slate-400" dir="rtl">${item.ar}</div></div></div><div class="text-right"><div class="font-bold text-sm">${activeCount} active</div><div class="text-xs text-slate-400">${waiting} waiting · ${available}/${people.length || 0} online</div></div></div><div class="h-1.5 mt-3 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full ${item.key === 'Pharmacy' ? 'bg-emerald-500' : item.key === 'Radiology' ? 'bg-orange-400' : 'bg-teal'}" style="width:${percent}%"></div></div></div>`;
   }).join('');
-  const canSeeLiveLoad = user.role === 'Manager' || user.role === 'Owner' || user.globalAdmin;
-  return `<div class="fade">${hero(`Good morning, ${esc(user.name.split(' ')[0])}`, 'Operations overview', 'See today’s patient volume, employee availability, and routing health from one control room.', actions)}${managerFilterBar()}${stationConsole()}<div class="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">${statCard('Patients served today', done, 'Completed journeys today', 'badge-check', 'teal')}${statCard('Total served', scope.filter(patient => patient.status === 'Done').length, 'All completed journeys', 'users-round', 'blue')}${statCard('Waiting now', active.filter(patient => patient.status === 'Waiting').length, 'Ready to be called', 'clock-3', 'orange')}${statCard('Late in queue', late, 'Marked late and prioritized last', 'alarm-clock', 'orange')}</div><div class="grid xl:grid-cols-[1.25fr_.75fr] gap-5 mt-5">${canSeeLiveLoad ? `<div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5"><div class="flex items-start justify-between gap-3"><div><h2 class="font-bold">Live destination load</h2><p class="text-sm text-slate-500 mt-1">Queue health and employee capacity right now.</p></div>${user.role === 'Manager' ? btn('Open displays', 'go-displays', 'text-teal bg-teal/5 hover:bg-teal/10', 'monitor-smartphone') : ''}</div><div class="mt-4">${branchRows}</div></div>` : ''}${sessionSummary()}</div></div>`;
+  const canSeeLiveLoad = isManagerRole(user) || user.role === 'Owner' || user.globalAdmin;
+  return `<div class="fade">${hero(`Good morning, ${esc(user.name.split(' ')[0])}`, 'Operations overview', 'See today’s patient volume, employee availability, and routing health from one control room.', actions)}${managerFilterBar()}${stationConsole()}<div class="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">${statCard('Patients served today', done, 'Completed journeys today', 'badge-check', 'teal')}${statCard('Total served', scope.filter(patient => patient.status === 'Done').length, 'All completed journeys', 'users-round', 'blue')}${statCard('Waiting now', active.filter(patient => patient.status === 'Waiting').length, 'Ready to be called', 'clock-3', 'orange')}${statCard('Late in queue', late, 'Marked late and prioritized last', 'alarm-clock', 'orange')}</div><div class="grid xl:grid-cols-[1.25fr_.75fr] gap-5 mt-5">${canSeeLiveLoad ? `<div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5"><div class="flex items-start justify-between gap-3"><div><h2 class="font-bold">Live destination load</h2><p class="text-sm text-slate-500 mt-1">Queue health and employee capacity right now.</p></div>${isManagerRole(user) ? btn('Open displays', 'go-displays', 'text-teal bg-teal/5 hover:bg-teal/10', 'monitor-smartphone') : ''}</div><div class="mt-4">${branchRows}</div></div>` : ''}${sessionSummary()}</div></div>`;
 }
 function kiosk() {
   const last = state.lastTicket;
@@ -364,12 +367,12 @@ function ticketRow(patient, showAssignment = true) {
 }
 function queues() {
   const user = currentUser();
-  const visible = user.role === 'Manager' ? managerDestinations(user).map(item => item.key) : [user.dept];
+  const visible = isManagerRole(user) ? managerDestinations(user).map(item => item.key) : [user.dept];
   const userOrg = user.org || ORG_DEFAULT;
   const branches = visible.map(branch => {
     const item = destination(branch);
     const patients = managerScope(state.patients, user).filter(patient => patient.branch === branch && patient.status !== 'Done').sort((a, b) => (a.status === 'Serving' ? -1 : 1) - (b.status === 'Serving' ? -1 : 1) || Number(a.late) - Number(b.late) || new Date(a.created) - new Date(b.created));
-    return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-5 border-b border-slate-100 flex items-center justify-between gap-3"><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl ${toneClasses(item.tone)} flex items-center justify-center">${icon(item.icon)}</div><div><h2 class="font-bold">${item.label}</h2><p class="text-xs text-slate-400" dir="rtl">${item.ar}</p></div></div><div class="text-right"><div class="font-bold">${patients.length}</div><div class="text-xs text-slate-400">active</div></div></div><div>${patients.map(patient => ticketRow(patient, user.role === 'Manager' || patient.assignedTo !== user.id)).join('') || '<div class="p-6 text-center text-sm text-slate-400">No active patients in this queue.</div>'}</div></section>`;
+    return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-5 border-b border-slate-100 flex items-center justify-between gap-3"><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl ${toneClasses(item.tone)} flex items-center justify-center">${icon(item.icon)}</div><div><h2 class="font-bold">${item.label}</h2><p class="text-xs text-slate-400" dir="rtl">${item.ar}</p></div></div><div class="text-right"><div class="font-bold">${patients.length}</div><div class="text-xs text-slate-400">active</div></div></div><div>${patients.map(patient => ticketRow(patient, isManagerRole(user) || patient.assignedTo !== user.id)).join('') || '<div class="p-6 text-center text-sm text-slate-400">No active patients in this queue.</div>'}</div></section>`;
   }).join('');
   return `<div class="fade">${hero('Core queue system', 'Queues & patient routing', 'Every patient keeps one unique code while the routing engine coordinates the right available employee.', `${btn('Refresh', 'refresh', 'bg-white border border-slate-200 text-ink hover:border-teal', 'refresh-cw')}`)}${managerFilterBar()}<div class="flex flex-col sm:flex-row gap-3 mb-5"><div class="relative flex-1"><span class="absolute left-3 top-3 text-slate-400">${icon('search')}</span><input id="queueSearch" class="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-3 text-sm" placeholder="Search ticket, destination, status, or employee" /></div><div class="rounded-xl bg-teal/5 border border-teal/10 px-4 py-3 text-sm text-teal flex items-center gap-2">${icon('route')} Auto-routing active</div></div><div class="grid xl:grid-cols-2 gap-5">${branches}</div></div>`;
 }
@@ -379,7 +382,7 @@ function displayCard(item) {
   const patients = visiblePatients.filter(patient => patient.branch === item.key);
   const current = patients.find(patient => patient.status === 'Serving');
   const waiting = patients.filter(patient => patient.status === 'Waiting');
-  const people = state.users.filter(user => user.dept === item.key && (user.org || ORG_DEFAULT) === (viewer.org || ORG_DEFAULT) && user.role !== 'Manager');
+  const people = state.users.filter(user => user.dept === item.key && (user.org || ORG_DEFAULT) === (viewer.org || ORG_DEFAULT) && !isManagerRole(user));
   return `<div class="display-card bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-4 border-b border-slate-100 flex justify-between items-center"><div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full ${people.some(person => person.availability !== 'unavailable') ? 'bg-emerald-500' : 'bg-slate-300'}"></span><b>${item.label}</b></div><span class="text-xs text-slate-400">${people.filter(person => person.availability !== 'unavailable').length}/${people.length} available</span></div><div class="p-5"><div class="text-xs text-slate-400 uppercase tracking-wider">Now serving</div><div class="display-code mt-2">${current ? current.code : '—'}</div><div class="text-sm text-slate-500 mt-2">${current ? `Please proceed to ${item.label}` : 'Waiting for the next call'}</div><div class="mt-5 pt-4 border-t border-slate-100 flex justify-between items-center"><span class="text-sm text-slate-500">Waiting queue</span><span class="font-bold text-lg">${waiting.length}</span></div>${waiting.slice(0, 4).map(patient => `<div class="flex items-center justify-between py-2 text-sm"><span class="font-semibold">#${patient.code}</span>${patient.late ? '<span class="text-xs text-orange-600">Late</span>' : '<span class="text-xs text-slate-400">Waiting</span>'}</div>`).join('')}</div></div>`;
 }
 function displays() {
@@ -400,7 +403,7 @@ function sessions() {
   const mine = state.sessions.filter(session => session.userId === user.id).sort((a, b) => new Date(b.start) - new Date(a.start));
   const current = activeSession(user.id);
   const late = mine.reduce((sum, session) => sum + (session.lateMinutes || 0), 0);
-  if (!current && user.role !== 'Manager' && user.role !== 'Receptionist') {
+  if (!current && !isManagerRole(user) && user.role !== 'Receptionist') {
     return `<div class="session-start-page"><div class="session-start-brand"><div class="h-14 w-14 rounded-2xl bg-white flex items-center justify-center overflow-hidden p-1 shadow-soft"><img src="eha-logo-mark.png" alt="EHA" class="h-full w-full object-contain" /></div><div><div class="font-bold text-xl">PFC Operations</div><div class="text-xs text-slate-400 uppercase tracking-widest">${esc(user.org || ORG_DEFAULT)}</div></div></div><div class="session-start-card"><div class="h-20 w-20 rounded-3xl bg-teal/10 text-teal flex items-center justify-center mx-auto">${icon('play', 'h-10 w-10')}</div><p class="text-teal font-semibold text-sm mt-7">${esc(displayName(user.dept))} station</p><h1 class="text-4xl font-bold mt-2">Start your session</h1><p class="text-slate-500 text-lg mt-4 max-w-md mx-auto">Welcome, ${esc(user.name)}. Start your shift to become available and receive patients. Your start time and lateness will be recorded automatically.</p><div class="grid grid-cols-2 gap-3 max-w-sm mx-auto mt-7 text-left"><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Shift starts</div><b class="block mt-1">${esc(user.shift || '08:00')}</b></div><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Station status</div><b class="block mt-1 text-slate-500">Unavailable</b></div></div><button data-action="session-toggle" class="mt-8 rounded-2xl bg-teal text-white px-10 py-4 text-lg font-bold hover:bg-teal-700 transition shadow-soft">Start working now ${icon('arrow-right')}</button><p class="text-xs text-slate-400 mt-5">You can pause or end the session at any time.</p></div>${attendanceTable(mine)}</div>`;
   }
   return `<div class="fade">${hero('Time & availability', 'My session', 'Start or end your station session and keep your availability visible to the whole routing system.', `${btn(user.availability === 'unavailable' ? 'Set available' : 'Set unavailable', 'availability-toggle', user.availability === 'unavailable' ? 'bg-teal text-white hover:bg-teal-700' : 'bg-white border border-slate-200 text-ink hover:border-orange-300', user.availability === 'unavailable' ? 'circle-check' : 'pause')}`)}<div class="grid lg:grid-cols-[.8fr_1.2fr] gap-5"><div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-6"><div class="flex items-center justify-between"><div><div class="text-sm text-slate-500">Current status</div><div class="text-2xl font-bold mt-2">${user.availability === 'unavailable' ? 'Unavailable' : 'Available'}</div></div>${availabilityPill(user)}</div><div class="grid grid-cols-2 gap-4 mt-8"><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Active session</div><div class="font-bold mt-2">${current ? fmtTime(current.start) : 'Not started'}</div></div><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Lateness this month</div><div class="font-bold mt-2 ${late ? 'text-orange-600' : 'text-emerald-600'}">${late} minutes</div></div></div><button data-action="session-toggle" class="w-full mt-7 rounded-xl bg-ink text-white px-4 py-3.5 font-semibold hover:bg-slate-800">${current ? 'End session' : 'Start session'} ${icon(current ? 'log-out' : 'play')}</button></div><div class="bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-5 border-b border-slate-100"><h2 class="font-bold">Recent attendance</h2><p class="text-sm text-slate-500 mt-1">Session start, end, and lateness are recorded for reporting. Up to 15 minutes after the scheduled start is On time; only the excess is shown as delayed.</p></div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-mist text-slate-500"><tr><th class="text-left p-4">Date</th><th class="text-left p-4">Started</th><th class="text-left p-4">Ended</th><th class="text-left p-4">Late</th></tr></thead><tbody>${mine.slice(0, 8).map(session => `<tr class="border-t border-slate-100"><td class="p-4">${new Date(session.start).toLocaleDateString()}</td><td class="p-4 font-semibold">${fmtTime(session.start)}</td><td class="p-4">${session.end ? fmtTime(session.end) : '<span class="text-teal font-semibold">Active</span>'}</td><td class="p-4">${session.lateMinutes ? `<span class="text-orange-600 font-semibold">${session.lateMinutes} min</span>` : '<span class="text-emerald-600">On time</span>'}</td></tr>`).join('') || '<tr><td colspan="4" class="p-8 text-center text-slate-400">No session history yet.</td></tr>'}</tbody></table></div></div></div></div>`;
@@ -462,7 +465,7 @@ function activityRows() {
   return rows.sort((a, b) => new Date(b.time) - new Date(a.time));
 }
 function activity() {
-  const rows = activityRows().filter(row => currentUser().role === 'Manager' ? isInManagerScope(row, currentUser()) : row.user === currentUser().name);
+  const rows = activityRows().filter(row => isManagerRole(currentUser()) ? isInManagerScope(row, currentUser()) : row.user === currentUser().name);
   return `<div class="fade">${hero('Audit-ready operational record', 'Action sheet', 'A chronological record of ticket actions, transfers, and employee session events.', '')}${managerFilterBar()}<div class="flex flex-col sm:flex-row gap-3 mb-5"><div class="relative flex-1"><span class="absolute left-3 top-3 text-slate-400">${icon('search')}</span><input id="activityFilter" class="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-3 text-sm" placeholder="Filter by employee, action, destination, or ticket" /></div><div class="rounded-xl bg-mist px-4 py-3 text-sm text-slate-500">${rows.length} events</div></div><div class="bg-white border border-slate-100 shadow-soft rounded-2xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-mist text-slate-500"><tr><th class="text-left p-4">Time</th><th class="text-left p-4">Employee</th><th class="text-left p-4">Place</th><th class="text-left p-4">Ticket</th><th class="text-left p-4">Action</th><th class="text-left p-4">Destination</th></tr></thead><tbody>${rows.map(row => `<tr class="activity-row border-t border-slate-100" data-search="${esc(`${row.user} ${row.dept} ${row.type} ${row.code} ${row.destination}`.toLowerCase())}"><td class="p-4 whitespace-nowrap">${fmt(row.time)}</td><td class="p-4 font-semibold">${esc(row.user)}</td><td class="p-4 text-slate-500">${esc(row.dept)}</td><td class="p-4 font-bold">${esc(row.code)}</td><td class="p-4"><span class="rounded-full px-2.5 py-1 text-xs ${row.type === 'Done' ? 'bg-emerald-50 text-emerald-700' : row.type === 'Late' ? 'bg-orange-50 text-orange-700' : row.type === 'Transfer' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700'}">${esc(row.type)}</span></td><td class="p-4 text-slate-500">${esc(row.destination)}</td></tr>`).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-400">No actions recorded yet.</td></tr>'}</tbody></table></div></div></div>`;
 }
 function organizationSetupPanel() {
@@ -499,10 +502,18 @@ function quickSystemPanel() {
   const accounts = state.users.filter(item => item.quickSystem && (user.globalAdmin || (item.org || ORG_DEFAULT) === (user.org || ORG_DEFAULT)));
   return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex flex-col lg:flex-row lg:items-start justify-between gap-4"><div><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl bg-cyan-50 text-cyan-700 flex items-center justify-center">${icon('monitor-down')}</div><div><h2 class="font-bold">Quick system access</h2><p class="text-sm text-slate-500 mt-1">Create a dedicated username and password for this organization’s ticket kiosk / quick system.</p></div></div></div><span class="live-badge">MANAGER CONTROL</span></div><form id="quickSystemForm" class="grid lg:grid-cols-[1fr_1fr_1fr_auto] gap-3 items-end mt-6"><label class="text-sm font-semibold">Organization<select name="org" ${user.globalAdmin ? '' : 'disabled'} class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3">${orgOptions}</select></label><label class="text-sm font-semibold">Quick system username<input name="username" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="unit.kiosk" /></label><label class="text-sm font-semibold">Password<input name="password" required minlength="6" type="password" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="At least 6 characters" /></label><button class="rounded-xl bg-cyan-700 text-white px-4 py-3 font-semibold hover:bg-cyan-800">Create access ${icon('key-round')}</button></form><div class="mt-5 grid md:grid-cols-2 xl:grid-cols-3 gap-3">${accounts.map(account => `<div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">${esc(account.org)}</div><div class="font-semibold mt-1">${esc(account.username)}</div><div class="text-xs text-slate-500 mt-2">Reception / kiosk access · ${account.id}</div></div>`).join('') || '<div class="text-sm text-slate-400">No quick system accounts created yet.</div>'}</div></section>`;
 }
+function visibilityControlPanel() {
+  const user = currentUser();
+  if (!user.globalAdmin) return '';
+  const selected = organizationByName(managerFilters.organization === 'all' ? organizations()[0]?.name : managerFilters.organization) || organizations()[0];
+  const options = organizations().map(org => `<option value="${esc(org.name)}" ${org.name === selected?.name ? 'selected' : ''}>${esc(org.name)}</option>`).join('');
+  const checks = role => VISIBILITY_MODULES.map(item => `<label class="flex items-center gap-2 text-sm text-slate-700 mb-2"><input type="checkbox" name="${role}Visibility" value="${item.key}" ${(selected?.visibility?.[role] || []).includes(item.key) ? 'checked' : ''} />${item.label}</label>`).join('');
+  return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex items-start gap-3"><div class="h-10 w-10 rounded-xl bg-violet-50 text-violet-700 flex items-center justify-center">${icon('eye')}</div><div><h2 class="font-bold">Facility visibility control</h2><p class="text-sm text-slate-500 mt-1">The Admin can change which information appears to facility employees and doctors in any organization.</p></div></div><form id="visibilityForm" class="mt-5"><label class="text-sm font-semibold">Organization<select name="org" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3">${options}</select></label><div class="grid md:grid-cols-2 gap-5 mt-5"><div class="rounded-2xl bg-mist p-4"><div class="font-semibold mb-3">Facility employees</div>${checks('facility')}</div><div class="rounded-2xl bg-mist p-4"><div class="font-semibold mb-3">Doctors</div>${checks('doctor')}</div></div><button class="mt-5 rounded-xl bg-violet-700 text-white px-4 py-3 font-semibold hover:bg-violet-800">Save visibility settings ${icon('save')}</button></form></section>`;
+}
 function admin() {
   const cmo = employees().filter(user => user.dept === 'CMO');
   const destinationOptions = managerDestinations(currentUser(), false).map(item => `<option value="${esc(item.key)}">${esc(item.label)} — ${esc(item.ar || '')}</option>`).join('');
-  return `<div class="fade">${hero('Manager controls', 'Admin dashboard', 'Create organization-based accounts, see who is online, and manage rooms, floors, and doctor assignments.', btn('Export PDF report', 'export-pdf', 'bg-ink text-white hover:bg-slate-800', 'file-down'))}${managerFilterBar()}${quickSystemPanel()}${roomAssignmentsPanel()}${organizationSetupPanel()}${departmentServicesPanel()}<div class="grid xl:grid-cols-[.8fr_1.2fr] gap-5"><section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6"><div class="flex items-center gap-3 mb-5"><div class="h-10 w-10 rounded-xl bg-teal/10 text-teal flex items-center justify-center">${icon('user-plus')}</div><div><h2 class="font-bold">Create employee account</h2><p class="text-sm text-slate-500 mt-1">Assign the organization, place, role, and shift before the employee signs in.</p></div></div><form id="adminUserForm" class="space-y-3"><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Full name<input name="name" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="Employee name" /></label><label class="text-sm font-semibold">Staff ID<input name="id" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="EHA-0000" /></label></div><label class="text-sm font-semibold">Organization<select name="org" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3">${managerOrganizations().map(org => `<option value="${esc(org.name)}">${esc(org.name)}</option>`).join('')}</select></label><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Place / station<select name="dept" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3">${destinationOptions}</select></label><label class="text-sm font-semibold">Role<select name="role" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3">${ALL_ROLES.filter(role => role !== 'Manager').map(role => `<option>${role}</option>`).join('')}</select></label></div><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Username<input name="username" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="username" /></label><label class="text-sm font-semibold">Shift starts<input name="shift" type="time" value="08:00" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" /></label></div><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Email<input name="email" type="email" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="name@eha.gov.eg" /></label><label class="text-sm font-semibold">Password<input name="password" type="password" minlength="6" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="Minimum 6 characters" /></label></div><button class="w-full rounded-xl bg-teal text-white py-3.5 font-semibold hover:bg-teal-700">Create account ${icon('arrow-right')}</button></form></section><section class="bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-5 border-b border-slate-100 flex items-start justify-between gap-3"><div><h2 class="font-bold">Organization workforce</h2><p class="text-sm text-slate-500 mt-1">${employees().length} employees across ${new Set(employees().map(user => user.dept)).size} destinations.</p></div><span class="live-badge">LIVE STATUS</span></div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-mist text-slate-500"><tr><th class="text-left p-4">Employee</th><th class="text-left p-4">Place</th><th class="text-left p-4">Clinic slot</th><th class="text-left p-4">Status</th><th class="text-left p-4">Queue</th></tr></thead><tbody>${employees().map(user => `<tr class="border-t border-slate-100"><td class="p-4"><div class="font-semibold">${esc(user.name)}</div><div class="text-xs text-slate-400">${esc(user.id)} · ${esc(user.org || ORG_DEFAULT)}</div></td><td class="p-4">${esc(displayName(user.dept))}</td><td class="p-4">${user.dept === 'CMO' ? `Clinic ${user.cmoSlot || '—'}` : '—'}</td><td class="p-4"><button data-user-availability="${esc(user.id)}">${availabilityPill(user)}</button></td><td class="p-4 font-bold">${state.patients.filter(patient => patient.assignedTo === user.id && patient.status !== 'Done').length}</td></tr>`).join('')}</tbody></table></div></section></div><section class="mt-5 bg-white rounded-2xl border border-slate-100 shadow-soft p-5"><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl bg-violet-50 text-violet-700 flex items-center justify-center">${icon('shuffle')}</div><div><h2 class="font-bold">Clinic balancing rules</h2><p class="text-sm text-slate-500 mt-1">Each new Clinic patient rotates to the next available Clinic slot. Unavailable employees receive no new patients and their queue is reassigned to available colleagues.</p></div></div><div class="grid md:grid-cols-3 gap-3 mt-5">${cmo.sort((a, b) => (a.cmoSlot || 9) - (b.cmoSlot || 9)).map(user => `<div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Clinic ${user.cmoSlot || '—'}</div><div class="font-semibold mt-1">${esc(user.name)}</div><div class="mt-2">${availabilityPill(user)}</div></div>`).join('')}</div></section></div>`;
+  return `<div class="fade">${hero('Manager controls', 'Admin dashboard', 'Create organization-based accounts, see who is online, and manage rooms, floors, and doctor assignments.', btn('Export PDF report', 'export-pdf', 'bg-ink text-white hover:bg-slate-800', 'file-down'))}${managerFilterBar()}${visibilityControlPanel()}${quickSystemPanel()}${roomAssignmentsPanel()}${organizationSetupPanel()}${departmentServicesPanel()}<div class="grid xl:grid-cols-[.8fr_1.2fr] gap-5"><section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6"><div class="flex items-center gap-3 mb-5"><div class="h-10 w-10 rounded-xl bg-teal/10 text-teal flex items-center justify-center">${icon('user-plus')}</div><div><h2 class="font-bold">Create employee account</h2><p class="text-sm text-slate-500 mt-1">Assign the organization, place, role, and shift before the employee signs in.</p></div></div><form id="adminUserForm" class="space-y-3"><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Full name<input name="name" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="Employee name" /></label><label class="text-sm font-semibold">Staff ID<input name="id" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="EHA-0000" /></label></div><label class="text-sm font-semibold">Organization<select name="org" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3">${managerOrganizations().map(org => `<option value="${esc(org.name)}">${esc(org.name)}</option>`).join('')}</select></label><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Place / station<select name="dept" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3">${destinationOptions}</select></label><label class="text-sm font-semibold">Role<select name="role" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3">${ALL_ROLES.filter(role => role !== 'Manager').map(role => `<option>${role}</option>`).join('')}</select></label></div><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Username<input name="username" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="username" /></label><label class="text-sm font-semibold">Shift starts<input name="shift" type="time" value="08:00" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" /></label></div><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Email<input name="email" type="email" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="name@eha.gov.eg" /></label><label class="text-sm font-semibold">Password<input name="password" type="password" minlength="6" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="Minimum 6 characters" /></label></div><button class="w-full rounded-xl bg-teal text-white py-3.5 font-semibold hover:bg-teal-700">Create account ${icon('arrow-right')}</button></form></section><section class="bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-5 border-b border-slate-100 flex items-start justify-between gap-3"><div><h2 class="font-bold">Organization workforce</h2><p class="text-sm text-slate-500 mt-1">${employees().length} employees across ${new Set(employees().map(user => user.dept)).size} destinations.</p></div><span class="live-badge">LIVE STATUS</span></div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-mist text-slate-500"><tr><th class="text-left p-4">Employee</th><th class="text-left p-4">Place</th><th class="text-left p-4">Clinic slot</th><th class="text-left p-4">Status</th><th class="text-left p-4">Queue</th></tr></thead><tbody>${employees().map(user => `<tr class="border-t border-slate-100"><td class="p-4"><div class="font-semibold">${esc(user.name)}</div><div class="text-xs text-slate-400">${esc(user.id)} · ${esc(user.org || ORG_DEFAULT)}</div></td><td class="p-4">${esc(displayName(user.dept))}</td><td class="p-4">${user.dept === 'CMO' ? `Clinic ${user.cmoSlot || '—'}` : '—'}</td><td class="p-4"><button data-user-availability="${esc(user.id)}">${availabilityPill(user)}</button></td><td class="p-4 font-bold">${state.patients.filter(patient => patient.assignedTo === user.id && patient.status !== 'Done').length}</td></tr>`).join('')}</tbody></table></div></section></div><section class="mt-5 bg-white rounded-2xl border border-slate-100 shadow-soft p-5"><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl bg-violet-50 text-violet-700 flex items-center justify-center">${icon('shuffle')}</div><div><h2 class="font-bold">Clinic balancing rules</h2><p class="text-sm text-slate-500 mt-1">Each new Clinic patient rotates to the next available Clinic slot. Unavailable employees receive no new patients and their queue is reassigned to available colleagues.</p></div></div><div class="grid md:grid-cols-3 gap-3 mt-5">${cmo.sort((a, b) => (a.cmoSlot || 9) - (b.cmoSlot || 9)).map(user => `<div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Clinic ${user.cmoSlot || '—'}</div><div class="font-semibold mt-1">${esc(user.name)}</div><div class="mt-2">${availabilityPill(user)}</div></div>`).join('')}</div></section></div>`;
 }
 function doctorNotifications() {
   const user = currentUser();
@@ -528,7 +539,7 @@ function addAction(type, patient, extra = {}) {
   patient.history.push({ at: now(), event: type, by: currentUser().name, destination: extra.to || patient.branch });
 }
 function availableWorkers(branch, org = ORG_DEFAULT) {
-  return state.users.filter(user => user.dept === branch && (user.org || ORG_DEFAULT) === (org || ORG_DEFAULT) && user.role !== 'Manager' && user.availability !== 'unavailable');
+  return state.users.filter(user => user.dept === branch && (user.org || ORG_DEFAULT) === (org || ORG_DEFAULT) && !['Manager', 'Admin'].includes(user.role) && user.availability !== 'unavailable');
 }
 function routePatient(patient, branch = patient.branch, skipUserId = null) {
   patient.branch = branch;
@@ -672,7 +683,7 @@ function callNext() {
 function processPatient(type, code) {
   const patient = patientByCode(code);
   if (!patient) return toast('Patient ticket was not found.', 'error');
-  if (patient.assignedTo && patient.assignedTo !== currentUser().id && currentUser().role !== 'Manager') return toast('This patient is assigned to another employee.', 'error');
+  if (patient.assignedTo && patient.assignedTo !== currentUser().id && !isManagerRole(currentUser())) return toast('This patient is assigned to another employee.', 'error');
   if (type === 'done') { patient.status = 'Done'; patient.late = false; addAction('Done', patient); toast(`Ticket #${code} marked done.`); }
   else if (type === 'late') { patient.late = true; patient.status = 'Waiting'; if (patient.branch === 'CMO') patient.assignedTo = null; addAction('Late', patient); toast(`Ticket #${code} marked late and moved behind on-time patients.`); }
   else if (type === 'transfer') openTransferModal(patient);
@@ -714,6 +725,8 @@ function bindPage() {
   if (form) form.onsubmit = event => { event.preventDefault(); createAdminUser(new FormData(form)); };
   const quickSystemForm = document.getElementById('quickSystemForm');
   if (quickSystemForm) quickSystemForm.onsubmit = event => { event.preventDefault(); createQuickSystem(new FormData(quickSystemForm)); };
+  const visibilityForm = document.getElementById('visibilityForm');
+  if (visibilityForm) visibilityForm.onsubmit = event => { event.preventDefault(); updateVisibilitySettings(new FormData(visibilityForm)); };
   const queueSearch = document.getElementById('queueSearch');
   if (queueSearch) queueSearch.oninput = () => { const query = queueSearch.value.toLowerCase(); document.querySelectorAll('.patient-row').forEach(row => row.style.display = row.dataset.search.includes(query) ? 'flex' : 'none'); };
   const managerOrgFilter = document.getElementById('managerOrgFilter');
@@ -800,6 +813,7 @@ function createOrganization(formData) {
 }
 function createAdminUser(formData) {
   const user = Object.fromEntries(formData.entries());
+  if (user.role === 'Admin' && !currentUser()?.globalAdmin) return toast('Only the full-access Admin can create another Admin account.', 'error');
   if (state.users.some(existing => existing.username === user.username || existing.id === user.id)) return toast('Username or staff ID already exists.', 'error');
   const created = { ...user, role: user.role, availability: 'unavailable', org: user.org || ORG_DEFAULT, cmoSlot: user.dept === 'CMO' ? state.users.filter(item => item.dept === 'CMO').length + 1 : undefined };
   state.users.push(created);
@@ -811,17 +825,26 @@ function createQuickSystem(formData) {
   const username = String(fields.username || '').trim();
   const password = String(fields.password || '');
   const org = manager?.globalAdmin ? String(fields.org || '').trim() : (manager?.org || ORG_DEFAULT);
-  if (!manager || manager.role !== 'Manager' || !username || password.length < 6 || !org) return toast('Enter a username, a password of at least 6 characters, and an organization.', 'error');
+  if (!manager || !isManagerRole(manager) || !username || password.length < 6 || !org) return toast('Enter a username, a password of at least 6 characters, and an organization.', 'error');
   if (!organizationByName(org)) return toast('Choose a valid organization.', 'error');
   if (state.users.some(existing => existing.username === username)) return toast('This quick system username already exists.', 'error');
   const account = { name: `${org} Quick System`, id: `QSYS-${String(Date.now()).slice(-6)}`, dept: 'Reception', org, email: '', username, password, role: 'Receptionist', shift: '00:00', availability: 'available', setup: true, quickSystem: true };
   state.users.push(account);
   save(); render(); toast(`Quick system account ${username} created for ${org}.`);
 }
+function updateVisibilitySettings(formData) {
+  const manager = currentUser();
+  if (!manager?.globalAdmin) return toast('Only the full-access Admin can change facility visibility.', 'error');
+  const fields = Object.fromEntries(formData.entries());
+  const org = organizationByName(fields.org);
+  if (!org) return toast('Choose a valid organization.', 'error');
+  org.visibility = { facility: formData.getAll('facilityVisibility'), doctor: formData.getAll('doctorVisibility') };
+  save(); render(); toast(`Visibility settings updated for ${org.name}.`);
+}
 function updateRoomAssignment(roomId, changes) {
   const room = roomById(roomId);
   const manager = currentUser();
-  if (!room || !manager || manager.role !== 'Manager') return;
+  if (!room || !manager || !isManagerRole(manager)) return;
   const previousDoctorId = room.doctorId;
   const previousSpecialty = room.specialty || '';
   const requestedDoctorId = changes.doctorId === undefined ? room.doctorId : String(changes.doctorId || '').trim();
@@ -855,7 +878,7 @@ document.getElementById('loginForm').onsubmit = event => {
   state.currentUser = user;
   managerFilters = { organization: user.globalAdmin ? 'all' : (user.org || ORG_DEFAULT), department: 'all' };
   save();
-  page = user.setup ? 'kiosk' : (user.role !== 'Manager' && user.role !== 'Receptionist' && !activeSession(user.id) ? 'sessions' : 'overview');
+  page = user.setup ? 'kiosk' : (isManagerRole(user) || user.role === 'Receptionist' ? 'overview' : (!activeSession(user.id) ? 'sessions' : 'overview'));
   shell(); render();
 };
 document.getElementById('signupForm').onsubmit = event => {
