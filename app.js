@@ -61,11 +61,11 @@ function createSeed() {
     version: 3,
     organizations: [{ id: 'ORG-001', name: ORG_DEFAULT, type: 'Health unit', location: 'العوامية', departments: [...ORGANIZATION_DEPARTMENTS], createdAt: stamp('07:45', d) }],
     rooms: [
-      { id: 'ROOM-101', org: ORG_DEFAULT, floor: 'Floor 1', name: 'Room 101', active: true, doctorId: 'DOC-101', updatedAt: stamp('07:50', d) },
-      { id: 'ROOM-102', org: ORG_DEFAULT, floor: 'Floor 1', name: 'Room 102', active: true, doctorId: 'DOC-102', updatedAt: stamp('07:50', d) },
-      { id: 'ROOM-103', org: ORG_DEFAULT, floor: 'Floor 1', name: 'Room 103', active: true, doctorId: 'DOC-103', updatedAt: stamp('07:50', d) },
-      { id: 'ROOM-201', org: ORG_DEFAULT, floor: 'Floor 2', name: 'Room 201', active: false, doctorId: null, updatedAt: stamp('07:50', d) },
-      { id: 'ROOM-202', org: ORG_DEFAULT, floor: 'Floor 2', name: 'Room 202', active: false, doctorId: null, updatedAt: stamp('07:50', d) }
+      { id: 'ROOM-101', org: ORG_DEFAULT, floor: 'Floor 1', name: 'Room 101', specialty: 'General Medicine', active: true, doctorId: 'DOC-101', updatedAt: stamp('07:50', d) },
+      { id: 'ROOM-102', org: ORG_DEFAULT, floor: 'Floor 1', name: 'Room 102', specialty: 'Family Medicine', active: true, doctorId: 'DOC-102', updatedAt: stamp('07:50', d) },
+      { id: 'ROOM-103', org: ORG_DEFAULT, floor: 'Floor 1', name: 'Room 103', specialty: 'Pediatrics', active: true, doctorId: 'DOC-103', updatedAt: stamp('07:50', d) },
+      { id: 'ROOM-201', org: ORG_DEFAULT, floor: 'Floor 2', name: 'Room 201', specialty: '', active: false, doctorId: null, updatedAt: stamp('07:50', d) },
+      { id: 'ROOM-202', org: ORG_DEFAULT, floor: 'Floor 2', name: 'Room 202', specialty: '', active: false, doctorId: null, updatedAt: stamp('07:50', d) }
     ],
     notifications: [],
     users,
@@ -90,7 +90,7 @@ function normalizeState(saved) {
   const fresh = createSeed();
   const merged = { ...fresh, ...saved, version: 3 };
   merged.organizations = (saved.organizations || fresh.organizations).map(org => ({ type: 'Health unit', location: '', departments: [...ORGANIZATION_DEPARTMENTS], services: [], ...org, services: org.services || [] }));
-  merged.rooms = (saved.rooms || fresh.rooms).map(room => ({ active: false, doctorId: null, updatedAt: now(), ...room }));
+  merged.rooms = (saved.rooms || fresh.rooms).map(room => ({ active: false, doctorId: null, specialty: '', updatedAt: now(), ...room }));
   merged.notifications = saved.notifications || [];
   merged.users = (saved.users || fresh.users).map(user => ({ availability: 'available', org: ORG_DEFAULT, ...user, globalAdmin: user.globalAdmin ?? (user.username === 'manager') }));
   merged.sessions = (saved.sessions || fresh.sessions).map(session => ({ ...session, lateMinutes: latenessMinutes(session.start, session.shift) }));
@@ -193,7 +193,7 @@ const roomById = id => (state.rooms || []).find(room => room.id === id);
 function notifyDoctor(doctorId, room, manager) {
   if (!doctorId) return;
   state.notifications = state.notifications || [];
-  state.notifications.unshift({ id: `NOTICE-${Date.now()}`, userId: doctorId, type: 'room-assignment', title: 'Room assignment updated', message: `${room.active ? 'You are assigned to' : 'Your assignment was removed from'} ${room.name} · ${room.floor}.`, roomId: room.id, read: false, createdAt: now(), by: manager.name });
+  state.notifications.unshift({ id: `NOTICE-${Date.now()}`, userId: doctorId, type: 'room-assignment', title: 'You have been moved to a room', message: `${room.active ? 'You have been moved to' : 'You have been moved out of'} ${room.name} · ${room.floor}${room.specialty ? ` · ${room.specialty}` : ''}.`, roomId: room.id, read: false, createdAt: now(), by: manager.name });
 }
 const unreadNotifications = userId => (state.notifications || []).filter(item => item.userId === userId && !item.read);
 function roomStatus(room) {
@@ -467,14 +467,13 @@ function roomAssignmentsPanel() {
   const cards = orgs.flatMap(org => {
     let rooms = roomsForOrganization(org.name);
     if (!rooms.length) {
-      rooms = ['Floor 1', 'Floor 2'].flatMap((floor, floorIndex) => [1, 2, 3].map((_, index) => ({ id: `ROOM-${org.id}-${floorIndex + 1}${index + 1}`, org: org.name, floor, name: `Room ${floorIndex + 1}${index + 1}`, active: false, doctorId: null })));
+      rooms = ['Floor 1', 'Floor 2'].flatMap((floor, floorIndex) => [1, 2, 3].map((_, index) => ({ id: `ROOM-${org.id}-${floorIndex + 1}${index + 1}`, org: org.name, floor, name: `Room ${floorIndex + 1}${index + 1}`, specialty: '', active: false, doctorId: null })));
       rooms.forEach(room => state.rooms.push(room));
     }
-    const doctors = doctorsForOrganization(org.name);
     const floors = [...new Set(rooms.map(room => room.floor))];
-    return floors.map(floor => `<div class="rounded-2xl border border-slate-200 p-4"><div class="flex items-center justify-between gap-3 mb-4"><div><div class="text-xs font-semibold uppercase tracking-widest text-teal">${esc(org.name)}</div><h3 class="font-bold mt-1">${esc(floor)}</h3></div><span class="text-xs text-slate-500">${rooms.filter(room => room.floor === floor && room.active).length}/${rooms.filter(room => room.floor === floor).length} active</span></div><div class="space-y-3">${rooms.filter(room => room.floor === floor).map(room => `<div class="rounded-xl bg-mist p-3"><div class="flex flex-col lg:flex-row lg:items-center gap-3"><label class="flex items-center gap-2 min-w-[150px] text-sm font-semibold"><input type="checkbox" data-room-active="${room.id}" ${room.active ? 'checked' : ''} class="h-4 w-4 accent-teal" />${esc(room.name)}</label><select data-room-doctor="${room.id}" class="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="">No doctor assigned</option>${doctors.map(doctor => `<option value="${esc(doctor.id)}" ${room.doctorId === doctor.id ? 'selected' : ''}>${esc(doctor.name)} · ${esc(doctor.id)}</option>`).join('')}</select><span data-room-status="${room.id}" class="shrink-0">${roomStatus(room)}</span></div></div>`).join('')}</div></div>`);
+    return floors.map(floor => `<div class="rounded-2xl border border-slate-200 p-4"><div class="flex items-center justify-between gap-3 mb-4"><div><div class="text-xs font-semibold uppercase tracking-widest text-teal">${esc(org.name)}</div><h3 class="font-bold mt-1">${esc(floor)}</h3></div><span class="text-xs text-slate-500">${rooms.filter(room => room.floor === floor && room.active).length}/${rooms.filter(room => room.floor === floor).length} active</span></div><div class="space-y-3">${rooms.filter(room => room.floor === floor).map(room => `<div class="rounded-xl bg-mist p-3"><div class="flex flex-col lg:flex-row lg:items-center gap-3"><label class="flex items-center gap-2 min-w-[150px] text-sm font-semibold"><input type="checkbox" data-room-active="${room.id}" ${room.active ? 'checked' : ''} class="h-4 w-4 accent-teal" />${esc(room.name)}</label><input data-room-specialty="${room.id}" value="${esc(room.specialty || '')}" class="flex-1 min-w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm" placeholder="Room specialty" /><input data-room-doctor="${room.id}" value="${esc(room.doctorId || '')}" class="flex-1 min-w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm" placeholder="Doctor ID only (e.g. DOC-101)" /><span data-room-status="${room.id}" class="shrink-0">${roomStatus(room)}</span></div></div>`).join('')}</div></div>`);
   }).join('');
-  return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex flex-col lg:flex-row lg:items-start justify-between gap-4"><div><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl bg-orange-50 text-orange-700 flex items-center justify-center">${icon('door-open')}</div><div><h2 class="font-bold">Rooms & doctor assignments</h2><p class="text-sm text-slate-500 mt-1">Activate only the rooms needed on each floor, assign a doctor, and send the updated assignment to their workspace.</p></div></div></div><span class="live-badge">MANAGER CONTROL</span></div><div class="grid lg:grid-cols-2 gap-4 mt-6">${cards || '<div class="rounded-xl bg-mist p-4 text-sm text-slate-500">No rooms configured for this organization yet.</div>'}</div><p class="text-xs text-slate-400 mt-4">Changes are saved immediately. Doctors receive an in-app notification the next time the assignment changes.</p></section>`;
+  return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex flex-col lg:flex-row lg:items-start justify-between gap-4"><div><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl bg-orange-50 text-orange-700 flex items-center justify-center">${icon('door-open')}</div><div><h2 class="font-bold">Rooms & doctor assignments</h2><p class="text-sm text-slate-500 mt-1">Activate rooms by floor, enter the room specialty, and assign a doctor using only their staff ID number.</p></div></div></div><span class="live-badge">MANAGER CONTROL</span></div><div class="grid lg:grid-cols-2 gap-4 mt-6">${cards || '<div class="rounded-xl bg-mist p-4 text-sm text-slate-500">No rooms configured for this organization yet.</div>'}</div><p class="text-xs text-slate-400 mt-4">Changes are saved immediately. The doctor receives an in-app notification saying they have been moved to the assigned room.</p></section>`;
 }
 function admin() {
   const cmo = employees().filter(user => user.dept === 'CMO');
@@ -704,6 +703,7 @@ function bindPage() {
   document.querySelectorAll('[data-user-availability]').forEach(el => el.addEventListener('click', () => { const user = userById(el.dataset.userAvailability); if (user) setAvailability(user, user.availability === 'unavailable' ? 'available' : 'unavailable'); }));
   document.querySelectorAll('[data-room-active]').forEach(el => el.addEventListener('change', () => updateRoomAssignment(el.dataset.roomActive, { active: el.checked })));
   document.querySelectorAll('[data-room-doctor]').forEach(el => el.addEventListener('change', () => updateRoomAssignment(el.dataset.roomDoctor, { doctorId: el.value })));
+  document.querySelectorAll('[data-room-specialty]').forEach(el => el.addEventListener('change', () => updateRoomAssignment(el.dataset.roomSpecialty, { specialty: el.value })));
   document.querySelectorAll('[data-patient-view]').forEach(el => el.addEventListener('click', () => { const patient = patientByCode(el.dataset.patientView); if (patient) openPatientDetails(patient); }));
   document.querySelectorAll('[data-action]').forEach(el => el.addEventListener('click', () => handleAction(el.dataset.action)));
 }
@@ -779,12 +779,17 @@ function updateRoomAssignment(roomId, changes) {
   const manager = currentUser();
   if (!room || !manager || manager.role !== 'Manager') return;
   const previousDoctorId = room.doctorId;
-  const nextDoctorId = changes.doctorId === undefined ? room.doctorId : changes.doctorId || null;
+  const previousSpecialty = room.specialty || '';
+  const requestedDoctorId = changes.doctorId === undefined ? room.doctorId : String(changes.doctorId || '').trim();
+  const nextDoctor = requestedDoctorId ? state.users.find(user => user.id === requestedDoctorId && user.role === 'Doctor' && (user.org || ORG_DEFAULT) === room.org) : null;
+  if (requestedDoctorId && !nextDoctor) return toast(`No doctor with ID ${requestedDoctorId} was found in ${room.org}.`, 'error');
+  const nextDoctorId = nextDoctor?.id || null;
   room.active = changes.active === undefined ? room.active : changes.active;
   room.doctorId = room.active ? nextDoctorId : null;
+  if (changes.specialty !== undefined) room.specialty = String(changes.specialty || '').trim();
   room.updatedAt = now();
   if (previousDoctorId && previousDoctorId !== room.doctorId) notifyDoctor(previousDoctorId, { ...room, active: false }, manager);
-  if (room.doctorId && (previousDoctorId !== room.doctorId || changes.active !== undefined)) notifyDoctor(room.doctorId, room, manager);
+  if (room.doctorId && (previousDoctorId !== room.doctorId || previousSpecialty !== room.specialty || changes.active !== undefined)) notifyDoctor(room.doctorId, room, manager);
   save();
   render();
   const doctor = userById(room.doctorId);
