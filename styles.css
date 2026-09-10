@@ -21,12 +21,17 @@ button { cursor: pointer; }
 .status-pill { display: inline-flex; align-items: center; gap: .4rem; border-radius: 999px; padding: .5rem .75rem; border: 1px solid transparent; font-size: .75rem; font-weight: 700; }
 .status-available { color: #047857; background: #ecfdf5; border-color: #bbf7d0; }
 .status-unavailable { color: #64748b; background: #f1f5f9; border-color: #e2e8f0; }
+.command-center { width: 100%; min-height: 220px; }
+.command-center h2 { letter-spacing: -.02em; }
+.command-center .command-action { min-height: 52px; }
+.command-center-notice { width: 100%; min-height: 116px; }
 .modal-backdrop { background: rgba(10, 25, 48, .56); backdrop-filter: blur(4px); }
 .notice-card { box-shadow: 0 18px 50px rgba(16,35,63,.07); }
 input:focus, select:focus { border-color: rgba(15, 118, 110, .48); box-shadow: 0 0 0 4px rgba(15, 118, 110, .09); outline: none; }
 @media (max-width: 640px) {
   .display-code { font-size: 3.2rem; }
   .ticket-number-lg { width: 116px; height: 116px; font-size: 3rem; }
+  .command-center { min-height: 0; }
 }
 @media print {
   #authView, #appView, #toastRoot { display: none !important; }
