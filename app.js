@@ -112,6 +112,32 @@ function normalizeState(saved) {
   return merged;
 }
 
+const API_BASE = window.PFC_API_BASE || '/api';
+let apiSyncTimer;
+async function loadRemoteState() {
+  try {
+    const response = await fetch(`${API_BASE}/state`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) return;
+    const remote = await response.json();
+    if (remote && remote.version === 3 && (remote.users?.length || remote.patients?.length)) {
+      const localUsers = state?.users || [];
+      const users = (remote.users || []).map(remoteUser => ({ ...(localUsers.find(user => user.id === remoteUser.id) || {}), ...remoteUser }));
+      state = normalizeState({ ...remote, users });
+      localStorage.setItem(KEY, JSON.stringify(state));
+      if (typeof shell === 'function' && typeof render === 'function') { shell(); render(); }
+    } else if (state?.users?.length) {
+      syncRemoteState();
+    }
+  } catch (error) { console.warn('Remote API unavailable; using local browser state.', error.message); }
+}
+async function syncRemoteState() {
+  clearTimeout(apiSyncTimer);
+  apiSyncTimer = setTimeout(async () => {
+    try {
+      await fetch(`${API_BASE}/state`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...state, currentUser: null }) });
+    } catch (error) { console.warn('Could not sync state to API.', error.message); }
+  }, 250);
+}
 let state;
 try {
   const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -148,7 +174,7 @@ const canAccess = target => {
   if (user.setup && target !== 'kiosk') return false;
   return (ACCESS[user.role] || ACCESS.Employee).includes(target) && organizationVisibility(user, target);
 };
-const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+const save = () => { localStorage.setItem(KEY, JSON.stringify(state)); syncRemoteState(); };
 const currentUser = () => state.currentUser;
 const userById = id => state.users.find(user => user.id === id);
 const destination = key => DESTINATIONS.find(item => item.key === key) || organizations().flatMap(org => org.services || []).find(item => item.key === key) || DESTINATIONS[0];
@@ -900,6 +926,7 @@ document.getElementById('showSignup').onclick = () => { document.getElementById(
 document.getElementById('showLogin').onclick = () => { document.getElementById('signupForm').classList.add('hidden'); document.getElementById('loginForm').classList.remove('hidden'); document.getElementById('authTitle').textContent = 'Welcome back'; document.getElementById('authSubtitle').textContent = 'Sign in to manage your station and queues.'; };
 document.getElementById('logoutBtn').onclick = () => { state.currentUser = null; save(); location.reload(); };
 document.getElementById('headerAvailability').onclick = () => { const user = currentUser(); setAvailability(user, user.availability === 'unavailable' ? 'available' : 'unavailable'); };
+loadRemoteState();
 document.getElementById('openSide').onclick = () => document.getElementById('sidebar').classList.remove('-translate-x-full');
 document.getElementById('closeSide').onclick = closeSidebar;
 
