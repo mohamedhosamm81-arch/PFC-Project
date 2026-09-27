@@ -194,13 +194,7 @@ const managerDestinations = (user = currentUser(), applyFilters = true) => {
   return applyFilters && isManagerRole(user) && managerFilters.department !== 'all' ? unique.filter(item => item.key === managerFilters.department) : unique;
 };
 function managerFilterBar() {
-  const user = currentUser();
-  if (!user || !isManagerRole(user)) return '';
-  const orgs = managerFilterOrganizations(user);
-  const departments = managerFilterDepartments(user);
-  const organizationOptions = user.globalAdmin ? [`<option value="all" ${managerFilters.organization === 'all' ? 'selected' : ''}>All organizations</option>`, ...orgs.map(org => `<option value="${esc(org.name)}" ${managerFilters.organization === org.name ? 'selected' : ''}>${esc(org.name)}</option>`)].join('') : orgs.map(org => `<option value="${esc(org.name)}" selected>${esc(org.name)}</option>`).join('');
-  const departmentOptions = [`<option value="all" ${managerFilters.department === 'all' ? 'selected' : ''}>All departments</option>`, ...departments.map(item => `<option value="${esc(item.key)}" ${managerFilters.department === item.key ? 'selected' : ''}>${esc(item.label)}${item.ar ? ` · ${esc(item.ar)}` : ''}</option>`)].join('');
-  return `<div class="bg-white border border-slate-100 shadow-soft rounded-2xl p-4 mb-5 flex flex-col lg:flex-row lg:items-end gap-3"><div class="flex items-center gap-2 text-sm font-semibold text-ink lg:mr-2">${icon('filter')} View filters</div><label class="text-xs font-semibold text-slate-500 flex-1">Organization<select id="managerOrgFilter" ${user.globalAdmin ? '' : 'disabled'} class="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">${organizationOptions}</select></label><label class="text-xs font-semibold text-slate-500 flex-1">Department / service<select id="managerDeptFilter" class="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">${departmentOptions}</select></label><button data-action="clear-manager-filters" class="rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm font-semibold text-slate-600 hover:border-teal">Clear filters</button><span class="text-xs text-slate-400">${user.globalAdmin ? 'Central administrator view' : `Assigned to ${esc(user.org || ORG_DEFAULT)}`}</span></div>`;
+  return '';
 }
 const scopedPatients = (user = currentUser()) => managerScope(state.patients, user);
 const scopedServedToday = (user = currentUser()) => scopedPatients(user).filter(patient => patient.status === 'Done' && isToday(patient.created)).length;
@@ -732,10 +726,6 @@ function bindPage() {
   if (visibilityForm) visibilityForm.onsubmit = event => { event.preventDefault(); updateVisibilitySettings(new FormData(visibilityForm)); };
   const queueSearch = document.getElementById('queueSearch');
   if (queueSearch) queueSearch.oninput = () => { const query = queueSearch.value.toLowerCase(); document.querySelectorAll('.patient-row').forEach(row => row.style.display = row.dataset.search.includes(query) ? 'flex' : 'none'); };
-  const managerOrgFilter = document.getElementById('managerOrgFilter');
-  if (managerOrgFilter) managerOrgFilter.onchange = () => { managerFilters.organization = managerOrgFilter.value; managerFilters.department = 'all'; render(); };
-  const managerDeptFilter = document.getElementById('managerDeptFilter');
-  if (managerDeptFilter) managerDeptFilter.onchange = () => { managerFilters.department = managerDeptFilter.value; render(); };
   const reportPeriodSelect = document.getElementById('reportPeriod');
   if (reportPeriodSelect) reportPeriodSelect.onchange = () => { reportPeriod = reportPeriodSelect.value; render(); };
   const reportFilter = document.getElementById('reportFilter');
@@ -761,7 +751,6 @@ function handleAction(action) {
   else if (action === 'session-toggle') { sessionToggle(); return; }
   else if (action === 'availability-toggle') { const user = currentUser(); setAvailability(user, user.availability === 'unavailable' ? 'available' : 'unavailable'); return; }
   else if (action === 'export-pdf') { exportPDF(); return; }
-  else if (action === 'clear-manager-filters') { managerFilters = { organization: currentUser()?.globalAdmin ? 'all' : (currentUser()?.org || ORG_DEFAULT), department: 'all' }; render(); return; }
   else if (action === 'mark-notifications-read') { markNotificationsRead(); return; }
   else if (action === 'kiosk-type-Regular' || action === 'kiosk-type-Disability') { kioskUserType = action.endsWith('Disability') ? 'Disability' : 'Regular'; render(); return; }
   else if (action === 'print-ticket') { printTicket(); return; }
