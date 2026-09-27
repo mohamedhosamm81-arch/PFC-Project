@@ -62,26 +62,6 @@
           <label class="block text-sm font-semibold">Username<input id="loginUser" required class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3.5 outline-none focus:ring-2 focus:ring-teal/30" placeholder="Username or staff ID" /></label>
           <label class="block text-sm font-semibold">Password<input id="loginPass" required type="password" class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3.5 outline-none focus:ring-2 focus:ring-teal/30" placeholder="••••••••" /></label>
           <button class="w-full rounded-xl bg-ink text-white py-3.5 font-semibold hover:bg-slate-800 transition">Sign in <i data-lucide="arrow-right" class="inline h-4 w-4 ml-1"></i></button>
-          <p class="text-center text-sm text-slate-500">No account? <button type="button" id="showSignup" class="text-teal font-semibold">Create an account</button></p>
-        </form>
-        <form id="signupForm" class="space-y-3 hidden">
-          <div class="grid sm:grid-cols-2 gap-3">
-            <label class="block text-sm font-semibold">Full name<input id="suName" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="Full name" /></label>
-            <label class="block text-sm font-semibold">Staff ID<input id="suId" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="EHA-0000" /></label>
-          </div>
-          <div class="grid sm:grid-cols-2 gap-3">
-            <label class="block text-sm font-semibold">Organization<select id="suOrg" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option>وحدة طب أسرة العوامية</option><option>وحدة طب أسرة القطيف</option><option>مستشفى العوامية المركزي</option></select></label>
-            <label class="block text-sm font-semibold">Place / station<select id="suDept" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option value="Reception">Screen · استقبال</option><option value="CMO">Clinic · العيادات</option><option value="Pharmacy">Pharmacy · الصيدلية</option><option value="Laboratory">Laboratory · المختبر</option><option value="Radiology">Radiology · الأشعة</option><option value="Cashier">Cashier · الخزينة</option></select></label>
-          </div>
-          <div class="grid sm:grid-cols-2 gap-3">
-            <label class="block text-sm font-semibold">Role<select id="suRole" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option>Employee</option><option>Doctor</option><option>Receptionist</option></select></label>
-            <label class="block text-sm font-semibold">Shift starts<input id="suShift" type="time" value="08:00" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" /></label>
-          </div>
-          <label class="block text-sm font-semibold">Email<input id="suEmail" type="email" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="name@eha.gov.eg" /></label>
-          <label class="block text-sm font-semibold">Username<input id="suUser" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="username" /></label>
-          <label class="block text-sm font-semibold">Password<input id="suPass" type="password" minlength="6" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="At least 6 characters" /></label>
-          <button class="w-full rounded-xl bg-teal text-white py-3.5 font-semibold hover:bg-teal-700 transition">Create account</button>
-          <p class="text-center text-sm text-slate-500">Already registered? <button type="button" id="showLogin" class="text-teal font-semibold">Back to sign in</button></p>
         </form>
         <div class="mt-8 rounded-2xl bg-mist p-4 text-xs text-slate-500">
           <b class="text-slate-700">Demo access</b>
