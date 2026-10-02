@@ -109,7 +109,8 @@ function normalizeState(saved) {
   merged.organizations = (saved.organizations || fresh.organizations).map(org => ({ type: 'Health unit', location: '', departments: [...ORGANIZATION_DEPARTMENTS], services: [], visibility: { facility: ['queues', 'sessions', 'activity'], doctor: ['queues', 'sessions', 'activity'] }, ...org, services: org.services || [], visibility: { facility: ['queues', 'sessions', 'activity'], doctor: ['queues', 'sessions', 'activity'], ...(org.visibility || {}) } }));
   merged.rooms = (saved.rooms || fresh.rooms).map(room => ({ active: false, doctorId: null, specialty: '', updatedAt: now(), ...room }));
   merged.notifications = saved.notifications || [];
-  merged.users = (saved.users || fresh.users).map(user => ({ availability: 'available', org: ORG_DEFAULT, screenOnly: false, screenName: '', screenFloor: '', screenRoom: '', screenNumber: '', ...user, screenOnly: user.screenOnly ?? Boolean(user.setup), globalAdmin: user.globalAdmin ?? (user.username === 'manager') }));
+  merged.users = (saved.users || fresh.users).map(user => ({ availability: 'available', org: ORG_DEFAULT, screenOnly: false, screenName: '', screenFloor: '', screenRoom: '', screenNumber: '', screenRooms: [], ...user, screenOnly: user.screenOnly ?? Boolean(user.setup), globalAdmin: user.globalAdmin ?? (user.username === 'manager') }));
+  merged.users.forEach(user => { if (!Array.isArray(user.screenRooms)) user.screenRooms = user.screenOnly && user.screenRoomId ? [{ roomId: user.screenRoomId, floor: user.screenFloor || '', name: user.screenRoom || '', purpose: '' }] : []; });
   const defaultScreen = fresh.users.find(user => user.username === 'screen');
   const savedScreen = merged.users.find(user => user.username === 'screen');
   if (savedScreen) Object.assign(savedScreen, { ...defaultScreen, ...savedScreen, password: 'screen123', role: 'Receptionist', dept: 'Reception', setup: true, screenOnly: true });
@@ -530,14 +531,30 @@ function roomAssignmentsPanel() {
 }
 function screenAccountsPanel() {
   const user = currentUser();
-  if (!isManagerRole(user)) return '';
-  const orgOptions = managerOrganizations(user).map(org => `<option value="${esc(org.name)}">${esc(org.name)}</option>`).join('');
-  const rooms = managerOrganizations(user).flatMap(org => roomsForOrganization(org.name).map(room => ({ ...room, orgName: org.name })));
-  const roomOptions = rooms.map(room => `<option value="${esc(room.id)}" data-screen-org="${esc(room.orgName)}">${esc(room.floor)} · ${esc(room.name)} — ${esc(room.orgName)}</option>`).join('');
-  const floorOptions = [...new Set(rooms.map(room => room.floor))].map(floor => `<option value="${esc(floor)}">${esc(floor)}</option>`).join('');
-  const screens = managerScope(state.users.filter(account => account.screenOnly), user);
-  const screenRows = screens.map(screen => `<div class="rounded-xl bg-mist p-3"><div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><div class="font-semibold">${esc(screen.screenName || screen.name || 'Kiosk screen')}</div><div class="text-xs text-slate-500 mt-1">${esc(screen.org || ORG_DEFAULT)} · ${esc(screen.screenFloor || 'Floor not set')} · ${esc(screen.screenRoom || 'Room not set')}${screen.screenNumber ? ` · Screen ${esc(screen.screenNumber)}` : ''}</div></div><span class="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">${esc(screen.username)}</span></div></div>`).join('') || '<div class="rounded-xl bg-mist p-4 text-sm text-slate-500">No custom screens created yet.</div>';
-  return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex items-start justify-between gap-4"><div><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl bg-cyan-50 text-cyan-700 flex items-center justify-center">${icon('monitor-smartphone')}</div><div><h2 class="font-bold">Screen accounts</h2><p class="text-sm text-slate-500 mt-1">Create multiple kiosk screens and assign each one to an organization, floor, room, and screen number.</p></div></div></div><span class="live-badge">SCREEN CONTROL</span></div><form id="screenAccountForm" class="grid lg:grid-cols-2 gap-4 mt-6"><div class="space-y-3"><label class="text-sm font-semibold">Organization<select name="org" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3">${orgOptions}</select></label><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Floor<select name="floor" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option value="">Choose a floor</option>${floorOptions}</select></label><label class="text-sm font-semibold">Room<select name="roomId" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option value="">Choose a room</option>${roomOptions}</select></label></div><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Screen name<input name="screenName" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="e.g. Main Lobby Screen" /></label><label class="text-sm font-semibold">Screen number<input name="screenNumber" required type="number" min="1" step="1" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="1" /></label></div></div><div class="space-y-3"><div class="rounded-2xl bg-mist p-4"><div class="font-semibold">Login credentials</div><p class="text-xs text-slate-500 mt-1">Use these credentials on the kiosk login screen. Create as many screen accounts as needed.</p></div><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Username<input name="username" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="screen.lobby" /></label><label class="text-sm font-semibold">Password<input name="password" type="password" minlength="6" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="Minimum 6 characters" /></label></div><button class="w-full rounded-xl bg-cyan-700 text-white py-3.5 font-semibold hover:bg-cyan-800">Create screen account ${icon('plus')}</button></div></form><div class="mt-6 pt-5 border-t border-slate-100"><h3 class="font-semibold">Configured screens</h3><div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3">${screenRows}</div></div></section>`;
+  const canSeeScreens = user && (isManagerRole(user) || user.globalAdmin);
+  if (!canSeeScreens) return '';
+  const canCreate = Boolean(user.globalAdmin);
+  const organization = organizationByName(user.org || ORG_DEFAULT) || organizations()[0];
+  const orgName = organization?.name || ORG_DEFAULT;
+  const rooms = roomsForOrganization(orgName);
+  const roomOptions = rooms.map(room => `<option value="${esc(room.id)}">${esc(room.floor)} · ${esc(room.name)}</option>`).join('');
+  const screens = state.users.filter(account => account.screenOnly && (account.org || ORG_DEFAULT) === orgName);
+  const screenRows = screens.map(screen => {
+    const configuredRooms = Array.isArray(screen.screenRooms) ? screen.screenRooms : [];
+    const configuredIds = new Set(configuredRooms.map(room => room.roomId));
+    const availableRooms = rooms.filter(room => !configuredIds.has(room.id));
+    const roomFields = configuredRooms.map(configured => {
+      const room = roomById(configured.roomId);
+      const roomName = configured.name || room?.name || 'Room';
+      const purpose = configured.purpose || room?.specialty || '';
+      return `<div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs font-semibold text-teal mb-2">${esc(configured.floor || room?.floor || '')} · ${esc(roomName)}</div><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Room name<input name="roomName_${esc(configured.roomId)}" value="${esc(roomName)}" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5" /></label><label class="text-sm font-semibold">Purpose<input name="roomPurpose_${esc(configured.roomId)}" value="${esc(purpose)}" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5" placeholder="What is this room used for?" /></label></div></div>`;
+    }).join('');
+    const managerConfig = isManagerRole(user) && user.role === 'Manager' ? `<form data-screen-config="${esc(screen.id)}" class="mt-4 rounded-2xl border border-teal-100 bg-teal/[.04] p-4"><div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-semibold">Screen name<input name="screenName" value="${esc(screen.screenName || screen.name || '')}" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5" /></label><label class="text-sm font-semibold">Add room<select name="addRoomId" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5"><option value="">Choose a room to add</option>${availableRooms.map(room => `<option value="${esc(room.id)}">${esc(room.floor)} · ${esc(room.name)}</option>`).join('')}</select></label></div><div class="space-y-3 mt-4">${roomFields || '<div class="rounded-xl bg-white border border-dashed border-slate-300 p-4 text-sm text-slate-500">No rooms assigned yet. Choose a room above to add it.</div>'}</div><button class="mt-4 rounded-xl bg-teal text-white px-4 py-3 font-semibold hover:bg-teal-700">Save screen and rooms ${icon('save')}</button></form>` : '';
+    const roomSummary = configuredRooms.length ? configuredRooms.map(room => `<span class="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600">${esc(room.name || room.roomId)}${room.purpose ? ` · ${esc(room.purpose)}` : ''}</span>`).join('') : '<span class="text-sm text-slate-500">Waiting for Manager room configuration.</span>';
+    return `<div class="rounded-2xl border border-slate-200 p-4"><div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3"><div><div class="font-semibold">${esc(screen.screenName || screen.name || 'Kiosk screen')}</div><div class="text-xs text-slate-500 mt-1">${esc(orgName)} · ${esc(screen.username)}</div></div><span class="rounded-full bg-cyan-50 text-cyan-700 px-2.5 py-1 text-xs font-semibold">Screen account</span></div><div class="flex flex-wrap gap-2 mt-4">${roomSummary}</div>${managerConfig}</div>`;
+  }).join('') || '<div class="rounded-xl bg-mist p-4 text-sm text-slate-500">No screen accounts have been created for this organization yet.</div>';
+  const createForm = canCreate ? `<form id="screenAccountForm" class="grid lg:grid-cols-2 gap-4 mt-6"><input type="hidden" name="org" value="${esc(orgName)}" /><div class="space-y-3"><div class="rounded-2xl bg-mist p-4"><div class="font-semibold">Create screen identity</div><p class="text-xs text-slate-500 mt-1">Create the screen name and login. A Manager will add its rooms and purposes after creation.</p></div><label class="text-sm font-semibold">Screen name<input name="screenName" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="e.g. Floor 1" /></label></div><div class="space-y-3"><label class="text-sm font-semibold">Username<input name="username" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="screen.floor1" /></label><label class="text-sm font-semibold">Password<input name="password" type="password" minlength="6" required class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" placeholder="Minimum 6 characters" /></label><button class="w-full rounded-xl bg-cyan-700 text-white py-3.5 font-semibold hover:bg-cyan-800">Create screen account ${icon('plus')}</button></div></form>` : `<div class="rounded-xl bg-mist p-4 mt-6 text-sm text-slate-600">Admin-created screens for <b>${esc(orgName)}</b> appear here. Add rooms, room names, and purposes below each screen.</div>`;
+  return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex items-start justify-between gap-4"><div><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-xl bg-cyan-50 text-cyan-700 flex items-center justify-center">${icon('monitor-smartphone')}</div><div><h2 class="font-bold">Screen accounts</h2><p class="text-sm text-slate-500 mt-1">${canCreate ? 'Create screen credentials for your organization. Managers configure the rooms shown on each screen.' : 'Configure the rooms, display names, and purposes for screens created by the Admin.'}</p></div></div></div><span class="live-badge">${canCreate ? 'ADMIN SCREEN CONTROL' : 'MANAGER SCREEN CONTROL'}</span></div>${createForm}<div class="mt-6 pt-5 border-t border-slate-100"><h3 class="font-semibold">Configured screens · ${esc(orgName)}</h3><div class="space-y-3 mt-3">${screenRows}</div></div></section>`;
 }
 function visibilityControlPanel() {
   const user = currentUser();
@@ -785,6 +802,7 @@ function bindPage() {
   if (form) form.onsubmit = event => { event.preventDefault(); createAdminUser(new FormData(form)); };
   const screenAccountForm = document.getElementById('screenAccountForm');
   if (screenAccountForm) screenAccountForm.onsubmit = event => { event.preventDefault(); createScreenAccount(new FormData(screenAccountForm)); };
+  document.querySelectorAll('[data-screen-config]').forEach(form => form.onsubmit = event => { event.preventDefault(); updateScreenConfiguration(form.dataset.screenConfig, new FormData(form)); });
   const visibilityForm = document.getElementById('visibilityForm');
   if (visibilityForm) visibilityForm.onsubmit = event => { event.preventDefault(); updateVisibilitySettings(new FormData(visibilityForm)); };
   const queueSearch = document.getElementById('queueSearch');
@@ -882,22 +900,40 @@ function createOrganization(formData) {
 }
 function createScreenAccount(formData) {
   const fields = Object.fromEntries(formData.entries());
-  const manager = currentUser();
-  const org = organizationByName(fields.org);
-  const room = roomById(fields.roomId);
+  const admin = currentUser();
+  const org = organizationByName(admin?.org || ORG_DEFAULT) || organizations()[0];
   const screenName = String(fields.screenName || '').trim();
   const username = String(fields.username || '').trim();
   const password = String(fields.password || '');
-  const screenNumber = String(fields.screenNumber || '').trim();
-  const floor = String(fields.floor || '').trim();
-  if (!isManagerRole(manager) || !org || !screenName || !username || !password || !floor || !screenNumber) return toast('Complete the screen name, organization, floor, number, and login credentials.', 'error');
-  if (!room || room.org !== org.name) return toast('Choose a room from the selected organization.', 'error');
-  if (room.floor !== floor) return toast('The selected floor must match the selected room.', 'error');
-  if (!/^\d+$/.test(screenNumber) || Number(screenNumber) < 1) return toast('Screen number must be a positive whole number.', 'error');
+  if (!admin?.globalAdmin || !org || !screenName || !username || !password) return toast('Complete the screen name and login credentials.', 'error');
   if (state.users.some(existing => existing.username.toLowerCase() === username.toLowerCase())) return toast('This username is already in use.', 'error');
-  const created = { name: screenName, id: `SCR-${Date.now().toString().slice(-8)}`, dept: 'Reception', org: org.name, email: `${username}@local`, username, password, role: 'Receptionist', shift: '00:00', availability: 'available', setup: true, screenOnly: true, screenName, screenFloor: floor, screenRoom: room.name, screenRoomId: room.id, screenNumber };
+  const created = { name: screenName, id: `SCR-${Date.now().toString().slice(-8)}`, dept: 'Reception', org: org.name, email: `${username}@local`, username, password, role: 'Receptionist', shift: '00:00', availability: 'available', setup: true, screenOnly: true, screenName, screenFloor: '', screenRoom: '', screenRoomId: '', screenNumber: '', screenRooms: [] };
   state.users.push(created);
-  save(); render(); toast(`Screen ${screenName} created with username ${username}.`);
+  save(); render(); toast(`Screen ${screenName} created for ${org.name}.`);
+}
+function updateScreenConfiguration(screenId, formData) {
+  const manager = currentUser();
+  const screen = userById(screenId);
+  if (!manager || manager.role !== 'Manager' || !screen?.screenOnly || (screen.org || ORG_DEFAULT) !== (manager.org || ORG_DEFAULT)) return toast('Only the organization Manager can configure this screen.', 'error');
+  const configuredRooms = Array.isArray(screen.screenRooms) ? screen.screenRooms : [];
+  const nextRooms = configuredRooms.map(configured => {
+    const room = roomById(configured.roomId);
+    return { ...configured, floor: configured.floor || room?.floor || '', name: String(formData.get(`roomName_${configured.roomId}`) || configured.name || room?.name || 'Room').trim(), purpose: String(formData.get(`roomPurpose_${configured.roomId}`) || '').trim() };
+  });
+  const addRoomId = String(formData.get('addRoomId') || '').trim();
+  if (addRoomId && !nextRooms.some(room => room.roomId === addRoomId)) {
+    const room = roomById(addRoomId);
+    if (!room || room.org !== (manager.org || ORG_DEFAULT)) return toast('Choose a room from your organization.', 'error');
+    nextRooms.push({ roomId: room.id, floor: room.floor, name: room.name, purpose: room.specialty || '' });
+  }
+  screen.screenName = String(formData.get('screenName') || screen.screenName || screen.name).trim();
+  screen.name = screen.screenName;
+  screen.screenRooms = nextRooms;
+  const first = nextRooms[0];
+  screen.screenFloor = first?.floor || '';
+  screen.screenRoom = first?.name || '';
+  screen.screenRoomId = first?.roomId || '';
+  save(); render(); toast(`Screen ${screen.screenName} configuration saved.`);
 }
 function createAdminUser(formData) {
   const user = Object.fromEntries(formData.entries());
