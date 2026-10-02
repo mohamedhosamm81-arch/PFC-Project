@@ -109,6 +109,10 @@ function normalizeState(saved) {
   merged.rooms = (saved.rooms || fresh.rooms).map(room => ({ active: false, doctorId: null, specialty: '', updatedAt: now(), ...room }));
   merged.notifications = saved.notifications || [];
   merged.users = (saved.users || fresh.users).map(user => ({ availability: 'available', org: ORG_DEFAULT, screenOnly: false, screenName: '', screenFloor: '', screenRoom: '', screenNumber: '', ...user, screenOnly: user.screenOnly ?? Boolean(user.setup), globalAdmin: user.globalAdmin ?? (user.username === 'manager') }));
+  const defaultScreen = fresh.users.find(user => user.username === 'screen');
+  const savedScreen = merged.users.find(user => user.username === 'screen');
+  if (savedScreen) Object.assign(savedScreen, { ...defaultScreen, ...savedScreen, password: 'screen123', role: 'Receptionist', dept: 'Reception', setup: true, screenOnly: true });
+  else merged.users.unshift({ ...defaultScreen });
   if (!merged.users.some(user => user.role === 'Admin')) merged.users.unshift({ name: 'System Administrator', id: 'ADM-001', dept: 'Administration', org: ORG_DEFAULT, email: 'admin@eha.gov.eg', username: 'admin', password: 'admin123', role: 'Admin', shift: '08:00', availability: 'available', globalAdmin: true });
   merged.sessions = (saved.sessions || fresh.sessions).map(session => ({ ...session, lateMinutes: latenessMinutes(session.start, session.shift) }));
   merged.patients = (saved.patients || fresh.patients).map(patient => ({ late: false, history: [], assignedTo: null, org: ORG_DEFAULT, userType: 'Regular', ...patient }));
