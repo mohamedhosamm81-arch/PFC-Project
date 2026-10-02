@@ -554,10 +554,10 @@ function screenAccountsPanel() {
 }
 function visibilityControlPanel() {
   const user = currentUser();
-  if (!user.globalAdmin) return '';
-  const selected = organizationByName(ORG_DEFAULT) || organizations()[0];
+  if (!user || user.role !== 'Manager' || user.globalAdmin) return '';
+  const selected = organizationByName(user.org || ORG_DEFAULT);
   const checks = role => VISIBILITY_MODULES.map(item => `<label class="flex items-center gap-2 text-sm text-slate-700 mb-2"><input type="checkbox" name="${role}Visibility" value="${item.key}" ${(selected?.visibility?.[role] || []).includes(item.key) ? 'checked' : ''} />${item.label}</label>`).join('');
-  return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex items-start gap-3"><div class="h-10 w-10 rounded-xl bg-violet-50 text-violet-700 flex items-center justify-center">${icon('eye')}</div><div><h2 class="font-bold">Facility visibility control</h2><p class="text-sm text-slate-500 mt-1">Control what appears to employees and doctors in the local facility.</p></div></div><form id="visibilityForm" class="mt-5"><div class="rounded-xl bg-mist border border-slate-200 px-4 py-3"><div class="text-xs text-slate-500">Organization</div><div class="font-semibold mt-1">${esc(ORG_DEFAULT)}</div></div><div class="grid mt-5"><div class="rounded-2xl bg-mist p-4"><div class="font-semibold mb-3">Doctors</div>${checks('doctor')}</div></div><button class="mt-5 rounded-xl bg-violet-700 text-white px-4 py-3 font-semibold hover:bg-violet-800">Save visibility settings ${icon('save')}</button></form></section>`;
+  return `<section class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 sm:p-6 mb-5"><div class="flex items-start gap-3"><div class="h-10 w-10 rounded-xl bg-violet-50 text-violet-700 flex items-center justify-center">${icon('eye')}</div><div><h2 class="font-bold">Facility visibility control</h2><p class="text-sm text-slate-500 mt-1">Control what appears to employees and doctors in your organization.</p></div></div><form id="visibilityForm" class="mt-5"><div class="rounded-xl bg-mist border border-slate-200 px-4 py-3"><div class="text-xs text-slate-500">Organization</div><div class="font-semibold mt-1">${esc(selected?.name || user.org || ORG_DEFAULT)}</div></div><div class="grid mt-5"><div class="rounded-2xl bg-mist p-4"><div class="font-semibold mb-3">Doctors</div>${checks('doctor')}</div></div><button class="mt-5 rounded-xl bg-violet-700 text-white px-4 py-3 font-semibold hover:bg-violet-800">Save visibility settings ${icon('save')}</button></form></section>`;
 }
 function admin() {
   const cmo = employees().filter(user => user.dept === 'CMO');
@@ -963,9 +963,9 @@ function createAdminUser(formData) {
 }
 function updateVisibilitySettings(formData) {
   const manager = currentUser();
-  if (!manager?.globalAdmin) return toast('Only the full-access Admin can change facility visibility.', 'error');
-  const org = organizationByName(ORG_DEFAULT) || organizations()[0];
-  if (!org) return toast('The local organization is not configured.', 'error');
+  if (!manager || manager.role !== 'Manager' || manager.globalAdmin) return toast('Only the organization Manager can change facility visibility.', 'error');
+  const org = organizationByName(manager.org || ORG_DEFAULT);
+  if (!org) return toast('Your organization is not configured.', 'error');
   org.visibility = { facility: org.visibility?.facility || [], doctor: formData.getAll('doctorVisibility') };
   save(); render(); toast(`Visibility settings updated for ${org.name}.`);
 }
