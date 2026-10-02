@@ -88,7 +88,7 @@ function createSeed() {
     currentUser: null,
     nextCode: 314,
     patients,
-    sessions: users.filter(u => !['Manager', 'Receptionist'].includes(u.role)).map((u, i) => { const start = stamp(['08:01', '08:03', '08:06', '08:14', '08:07', '08:16'][i] || '08:00', d); return { userId: u.id, user: u.name, dept: u.dept, org: u.org, start, end: null, shift: u.shift, lateMinutes: latenessMinutes(start, u.shift) }; }),
+    sessions: users.filter(u => !['Manager', 'Admin', 'Receptionist'].includes(u.role)).map((u, i) => { const start = stamp(['08:01', '08:03', '08:06', '08:14', '08:07', '08:16'][i] || '08:00', d); return { userId: u.id, user: u.name, dept: u.dept, org: u.org, start, end: null, shift: u.shift, lateMinutes: latenessMinutes(start, u.shift) }; }),
     actions: [
       { user: 'Reception Desk', userId: 'REC-001', dept: 'Reception', type: 'Issue', code: 245, time: stamp('08:02', d), to: 'CMO' },
       { user: 'Dr. Layla Hassan', userId: 'DOC-101', dept: 'CMO', type: 'Done', code: 245, time: stamp('08:25', d), to: 'CMO' },
@@ -291,8 +291,13 @@ function shell() {
   document.getElementById('topDept').textContent = `${user.role} · ${user.id} · ${displayName(user.dept)}`;
   document.getElementById('topAvatar').textContent = initials(user.name);
   const availability = document.getElementById('headerAvailability');
-  availability.className = `status-pill ${user.availability === 'unavailable' ? 'status-unavailable' : 'status-available'}`;
-  availability.innerHTML = `${icon(user.availability === 'unavailable' ? 'pause-circle' : 'circle-check')} ${user.availability === 'unavailable' ? 'Unavailable' : 'Available'}`;
+  if (isManagerRole(user)) {
+    availability.className = 'hidden';
+    availability.innerHTML = '';
+  } else {
+    availability.className = `status-pill ${user.availability === 'unavailable' ? 'status-unavailable' : 'status-available'} hidden sm:inline-flex`;
+    availability.innerHTML = `${icon(user.availability === 'unavailable' ? 'pause-circle' : 'circle-check')} ${user.availability === 'unavailable' ? 'Unavailable' : 'Available'}`;
+  }
 
   if (kioskFullscreen || sessionLocked) {
     document.getElementById('sidebar').classList.add('hidden');
@@ -617,6 +622,7 @@ function setAvailability(user, next) {
 function sessionToggle() {
   resetOperationalDay();
   const user = currentUser();
+  if (isManagerRole(user)) return;
   const active = activeSession(user.id);
   if (active) {
     active.end = now();
@@ -957,7 +963,7 @@ document.getElementById('loginForm').onsubmit = event => {
   shell(); render();
 };
 document.getElementById('logoutBtn').onclick = () => { state.currentUser = null; save(); location.reload(); };
-document.getElementById('headerAvailability').onclick = () => { const user = currentUser(); setAvailability(user, user.availability === 'unavailable' ? 'available' : 'unavailable'); };
+document.getElementById('headerAvailability').onclick = () => { const user = currentUser(); if (!isManagerRole(user)) setAvailability(user, user.availability === 'unavailable' ? 'available' : 'unavailable'); };
 document.getElementById('openSide').onclick = () => document.getElementById('sidebar').classList.remove('-translate-x-full');
 document.getElementById('closeSide').onclick = closeSidebar;
 
