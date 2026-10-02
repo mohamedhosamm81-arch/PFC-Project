@@ -29,7 +29,7 @@ const VISIBILITY_MODULES = [
   { key: 'activity', label: 'Action sheet' }
 ];
 
-const isoDate = (date = new Date()) => date.toISOString().slice(0, 10);
+const isoDate = (date = new Date()) => { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, '0'); const day = String(date.getDate()).padStart(2, '0'); return `${year}-${month}-${day}`; };
 const stamp = (time, date = isoDate()) => new Date(`${date}T${time}:00`).toISOString();
 const today = () => isoDate();
 const now = () => new Date().toISOString();
@@ -74,6 +74,7 @@ function createSeed() {
   ];
   return {
     version: 3,
+    operationalDay: today(),
     organizations: [{ id: 'ORG-001', name: ORG_DEFAULT, type: 'Health unit', location: 'العوامية', departments: [...ORGANIZATION_DEPARTMENTS], visibility: { facility: ['queues', 'sessions', 'activity'], doctor: ['queues', 'sessions', 'activity'] }, createdAt: stamp('07:45', d) }],
     rooms: [
       { id: 'ROOM-101', org: ORG_DEFAULT, floor: 'Floor 1', name: 'Room 101', specialty: 'General Medicine', active: true, doctorId: 'DOC-101', updatedAt: stamp('07:50', d) },
@@ -103,7 +104,7 @@ function createSeed() {
 
 function normalizeState(saved) {
   const fresh = createSeed();
-  const merged = { ...fresh, ...saved, version: 3 };
+  const merged = { ...fresh, ...saved, version: 3, operationalDay: saved.operationalDay || null };
   merged.organizations = (saved.organizations || fresh.organizations).map(org => ({ type: 'Health unit', location: '', departments: [...ORGANIZATION_DEPARTMENTS], services: [], visibility: { facility: ['queues', 'sessions', 'activity'], doctor: ['queues', 'sessions', 'activity'] }, ...org, services: org.services || [], visibility: { facility: ['queues', 'sessions', 'activity'], doctor: ['queues', 'sessions', 'activity'], ...(org.visibility || {}) } }));
   merged.rooms = (saved.rooms || fresh.rooms).map(room => ({ active: false, doctorId: null, specialty: '', updatedAt: now(), ...room }));
   merged.notifications = saved.notifications || [];
@@ -198,11 +199,23 @@ function managerFilterBar() {
 }
 const scopedPatients = (user = currentUser()) => managerScope(state.patients, user);
 const scopedServedToday = (user = currentUser()) => scopedPatients(user).filter(patient => patient.status === 'Done' && isToday(patient.created)).length;
-const isToday = value => value && String(value).slice(0, 10) === today();
+const isToday = value => value && isoDate(new Date(value)) === today();
 const activePatients = () => state.patients.filter(patient => patient.status !== 'Done');
 const servedToday = () => state.patients.filter(patient => patient.status === 'Done' && isToday(patient.created)).length;
 const waitingFor = branch => state.patients.filter(patient => patient.branch === branch && patient.status === 'Waiting');
-const activeSession = userId => [...state.sessions].reverse().find(session => session.userId === userId && !session.end);
+const activeSession = userId => [...state.sessions].reverse().find(session => session.userId === userId && isToday(session.start) && !session.end);
+function resetOperationalDay() {
+  const currentDay = today();
+  if (state.operationalDay === currentDay) return;
+  state.operationalDay = currentDay;
+  state.sessions = state.sessions.map(session => !session.end && !isToday(session.start) ? { ...session, end: now() } : session);
+  state.patients = state.patients.filter(patient => isToday(patient.created));
+  state.lastTicket = state.patients.slice().sort((a, b) => new Date(b.created) - new Date(a.created))[0] || null;
+  state.nextCode = 1;
+  state.users.forEach(user => { if (!isManagerRole(user) && !user.screenOnly) user.availability = 'unavailable'; });
+  save();
+}
+resetOperationalDay();
 const employees = () => managerScope(state.users.filter(user => !['Manager', 'Admin'].includes(user.role) && user.dept !== 'Administration' && !user.screenOnly));
 const organizations = () => state.organizations || [{ id: 'ORG-001', name: ORG_DEFAULT, type: 'Health unit', location: 'العوامية', departments: [...ORGANIZATION_DEPARTMENTS] }];
 const organizationByName = name => organizations().find(org => org.name === name);
@@ -403,11 +416,11 @@ function sessions() {
   const user = currentUser();
   const mine = state.sessions.filter(session => session.userId === user.id).sort((a, b) => new Date(b.start) - new Date(a.start));
   const current = activeSession(user.id);
-  const late = mine.reduce((sum, session) => sum + (session.lateMinutes || 0), 0);
+  const late = mine.filter(session => isToday(session.start)).reduce((sum, session) => sum + (session.lateMinutes || 0), 0);
   if (!current && !isManagerRole(user) && user.role !== 'Receptionist') {
     return `<div class="session-start-page"><div class="session-start-brand"><div class="h-14 w-14 rounded-2xl bg-white flex items-center justify-center overflow-hidden p-1 shadow-soft"><img src="eha-logo-mark.png" alt="EHA" class="h-full w-full object-contain" /></div><div><div class="font-bold text-xl">PFC Operations</div><div class="text-xs text-slate-400 uppercase tracking-widest">${esc(user.org || ORG_DEFAULT)}</div></div></div><div class="session-start-card"><div class="h-20 w-20 rounded-3xl bg-teal/10 text-teal flex items-center justify-center mx-auto">${icon('play', 'h-10 w-10')}</div><p class="text-teal font-semibold text-sm mt-7">${esc(displayName(user.dept))} station</p><h1 class="text-4xl font-bold mt-2">Start your session</h1><p class="text-slate-500 text-lg mt-4 max-w-md mx-auto">Welcome, ${esc(user.name)}. Start your shift to become available and receive patients. Your start time and lateness will be recorded automatically.</p><div class="grid grid-cols-2 gap-3 max-w-sm mx-auto mt-7 text-left"><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Shift starts</div><b class="block mt-1">${esc(user.shift || '08:00')}</b></div><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Station status</div><b class="block mt-1 text-slate-500">Unavailable</b></div></div><button data-action="session-toggle" class="mt-8 rounded-2xl bg-teal text-white px-10 py-4 text-lg font-bold hover:bg-teal-700 transition shadow-soft">Start working now ${icon('arrow-right')}</button><p class="text-xs text-slate-400 mt-5">You can pause or end the session at any time.</p></div>${attendanceTable(mine)}</div>`;
   }
-  return `<div class="fade">${hero('Time & availability', 'My session', 'Start or end your station session and keep your availability visible to the whole routing system.', `${btn(user.availability === 'unavailable' ? 'Set available' : 'Set unavailable', 'availability-toggle', user.availability === 'unavailable' ? 'bg-teal text-white hover:bg-teal-700' : 'bg-white border border-slate-200 text-ink hover:border-orange-300', user.availability === 'unavailable' ? 'circle-check' : 'pause')}`)}<div class="grid lg:grid-cols-[.8fr_1.2fr] gap-5"><div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-6"><div class="flex items-center justify-between"><div><div class="text-sm text-slate-500">Current status</div><div class="text-2xl font-bold mt-2">${user.availability === 'unavailable' ? 'Unavailable' : 'Available'}</div></div>${availabilityPill(user)}</div><div class="grid grid-cols-2 gap-4 mt-8"><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Active session</div><div class="font-bold mt-2">${current ? fmtTime(current.start) : 'Not started'}</div></div><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Lateness this month</div><div class="font-bold mt-2 ${late ? 'text-orange-600' : 'text-emerald-600'}">${late} minutes</div></div></div><button data-action="session-toggle" class="w-full mt-7 rounded-xl bg-ink text-white px-4 py-3.5 font-semibold hover:bg-slate-800">${current ? 'End session' : 'Start session'} ${icon(current ? 'log-out' : 'play')}</button></div><div class="bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-5 border-b border-slate-100"><h2 class="font-bold">Recent attendance</h2><p class="text-sm text-slate-500 mt-1">Session start, end, and lateness are recorded for reporting. Up to 15 minutes after the scheduled start is On time; only the excess is shown as delayed.</p></div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-mist text-slate-500"><tr><th class="text-left p-4">Date</th><th class="text-left p-4">Started</th><th class="text-left p-4">Ended</th><th class="text-left p-4">Late</th></tr></thead><tbody>${mine.slice(0, 8).map(session => `<tr class="border-t border-slate-100"><td class="p-4">${new Date(session.start).toLocaleDateString()}</td><td class="p-4 font-semibold">${fmtTime(session.start)}</td><td class="p-4">${session.end ? fmtTime(session.end) : '<span class="text-teal font-semibold">Active</span>'}</td><td class="p-4">${session.lateMinutes ? `<span class="text-orange-600 font-semibold">${session.lateMinutes} min</span>` : '<span class="text-emerald-600">On time</span>'}</td></tr>`).join('') || '<tr><td colspan="4" class="p-8 text-center text-slate-400">No session history yet.</td></tr>'}</tbody></table></div></div></div></div>`;
+  return `<div class="fade">${hero('Time & availability', 'My session', 'Start or end your station session and keep your availability visible to the whole routing system.', `${btn(user.availability === 'unavailable' ? 'Set available' : 'Set unavailable', 'availability-toggle', user.availability === 'unavailable' ? 'bg-teal text-white hover:bg-teal-700' : 'bg-white border border-slate-200 text-ink hover:border-orange-300', user.availability === 'unavailable' ? 'circle-check' : 'pause')}`)}<div class="grid lg:grid-cols-[.8fr_1.2fr] gap-5"><div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-6"><div class="flex items-center justify-between"><div><div class="text-sm text-slate-500">Current status</div><div class="text-2xl font-bold mt-2">${user.availability === 'unavailable' ? 'Unavailable' : 'Available'}</div></div>${availabilityPill(user)}</div><div class="grid grid-cols-2 gap-4 mt-8"><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Active session</div><div class="font-bold mt-2">${current ? fmtTime(current.start) : 'Not started'}</div></div><div class="rounded-2xl bg-mist p-4"><div class="text-xs text-slate-400">Lateness today</div><div class="font-bold mt-2 ${late ? 'text-orange-600' : 'text-emerald-600'}">${late} minutes</div></div></div><button data-action="session-toggle" class="w-full mt-7 rounded-xl bg-ink text-white px-4 py-3.5 font-semibold hover:bg-slate-800">${current ? 'End session' : 'Start session'} ${icon(current ? 'log-out' : 'play')}</button></div><div class="bg-white rounded-2xl border border-slate-100 shadow-soft overflow-hidden"><div class="p-5 border-b border-slate-100"><h2 class="font-bold">Recent attendance</h2><p class="text-sm text-slate-500 mt-1">Session start, end, and lateness are recorded for reporting. Up to 15 minutes after the scheduled start is On time; only the excess is shown as delayed.</p></div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-mist text-slate-500"><tr><th class="text-left p-4">Date</th><th class="text-left p-4">Started</th><th class="text-left p-4">Ended</th><th class="text-left p-4">Late</th></tr></thead><tbody>${mine.slice(0, 8).map(session => `<tr class="border-t border-slate-100"><td class="p-4">${new Date(session.start).toLocaleDateString()}</td><td class="p-4 font-semibold">${fmtTime(session.start)}</td><td class="p-4">${session.end ? fmtTime(session.end) : '<span class="text-teal font-semibold">Active</span>'}</td><td class="p-4">${session.lateMinutes ? `<span class="text-orange-600 font-semibold">${session.lateMinutes} min</span>` : '<span class="text-emerald-600">On time</span>'}</td></tr>`).join('') || '<tr><td colspan="4" class="p-8 text-center text-slate-400">No session history yet.</td></tr>'}</tbody></table></div></div></div></div>`;
 }
 function reportRows() {
   return employees().map(user => {
@@ -466,8 +479,9 @@ function activityRows() {
   return rows.sort((a, b) => new Date(b.time) - new Date(a.time));
 }
 function activity() {
-  const rows = activityRows().filter(row => isToday(row.time) && (isManagerRole(currentUser()) ? isInManagerScope(row, currentUser()) : row.user === currentUser().name));
-  return `<div class="fade">${hero('Audit-ready operational record', 'Action sheet', 'A chronological record of ticket actions, transfers, and employee session events.', '')}${managerFilterBar()}<div class="flex flex-col sm:flex-row gap-3 mb-5"><div class="relative flex-1"><span class="absolute left-3 top-3 text-slate-400">${icon('search')}</span><input id="activityFilter" class="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-3 text-sm" placeholder="Filter by employee, action, destination, or ticket" /></div><div class="rounded-xl bg-mist px-4 py-3 text-sm text-slate-500">${rows.length} events</div></div><div class="bg-white border border-slate-100 shadow-soft rounded-2xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-mist text-slate-500"><tr><th class="text-left p-4">Time</th><th class="text-left p-4">Employee</th><th class="text-left p-4">Place</th><th class="text-left p-4">Ticket</th><th class="text-left p-4">Action</th><th class="text-left p-4">Destination</th></tr></thead><tbody>${rows.map(row => `<tr class="activity-row border-t border-slate-100" data-search="${esc(`${row.user} ${row.dept} ${row.type} ${row.code} ${row.destination}`.toLowerCase())}"><td class="p-4 whitespace-nowrap">${fmt(row.time)}</td><td class="p-4 font-semibold">${esc(row.user)}</td><td class="p-4 text-slate-500">${esc(row.dept)}</td><td class="p-4 font-bold">${esc(row.code)}</td><td class="p-4"><span class="rounded-full px-2.5 py-1 text-xs ${row.type === 'Done' ? 'bg-emerald-50 text-emerald-700' : row.type === 'Late' ? 'bg-orange-50 text-orange-700' : row.type === 'Transfer' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700'}">${esc(row.type)}</span></td><td class="p-4 text-slate-500">${esc(row.destination)}</td></tr>`).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-400">No actions recorded yet.</td></tr>'}</tbody></table></div></div></div>`;
+  const session = !isManagerRole(currentUser()) ? activeSession(currentUser().id) : null;
+  const rows = activityRows().filter(row => isToday(row.time) && (!session || new Date(row.time) >= new Date(session.start)) && (isManagerRole(currentUser()) ? isInManagerScope(row, currentUser()) : row.user === currentUser().name));
+  return `<div class="fade">${hero('Audit-ready operational record', 'Action sheet', `Today’s chronological record for ${today()}: ticket actions, transfers, and employee session events.`, '')}${managerFilterBar()}<div class="flex flex-col sm:flex-row gap-3 mb-5"><div class="relative flex-1"><span class="absolute left-3 top-3 text-slate-400">${icon('search')}</span><input id="activityFilter" class="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-3 text-sm" placeholder="Filter by employee, action, destination, or ticket" /></div><div class="rounded-xl bg-mist px-4 py-3 text-sm text-slate-500">${rows.length} events</div></div><div class="bg-white border border-slate-100 shadow-soft rounded-2xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-mist text-slate-500"><tr><th class="text-left p-4">Time</th><th class="text-left p-4">Employee</th><th class="text-left p-4">Place</th><th class="text-left p-4">Ticket</th><th class="text-left p-4">Action</th><th class="text-left p-4">Destination</th></tr></thead><tbody>${rows.map(row => `<tr class="activity-row border-t border-slate-100" data-search="${esc(`${row.user} ${row.dept} ${row.type} ${row.code} ${row.destination}`.toLowerCase())}"><td class="p-4 whitespace-nowrap">${fmt(row.time)}</td><td class="p-4 font-semibold">${esc(row.user)}</td><td class="p-4 text-slate-500">${esc(row.dept)}</td><td class="p-4 font-bold">${esc(row.code)}</td><td class="p-4"><span class="rounded-full px-2.5 py-1 text-xs ${row.type === 'Done' ? 'bg-emerald-50 text-emerald-700' : row.type === 'Late' ? 'bg-orange-50 text-orange-700' : row.type === 'Transfer' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700'}">${esc(row.type)}</span></td><td class="p-4 text-slate-500">${esc(row.destination)}</td></tr>`).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-400">No actions recorded yet.</td></tr>'}</tbody></table></div></div></div>`;
 }
 function organizationSetupPanel() {
   const user = currentUser();
@@ -538,6 +552,7 @@ function doctorNotifications() {
   return `<section class="mb-5 rounded-2xl border border-violet-100 bg-violet-50 p-5"><div class="flex items-start gap-3"><div class="h-10 w-10 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center">${icon('bell-ring')}</div><div class="flex-1"><div class="flex items-center justify-between gap-3"><h2 class="font-bold text-violet-900">New room assignment</h2><span class="text-xs font-semibold text-violet-700">${notices.length} unread</span></div>${notices.slice(0, 3).map(notice => `<p class="text-sm text-violet-800 mt-2">${esc(notice.message)} <span class="text-violet-500">· ${fmt(notice.createdAt)}</span></p>`).join('')}<button data-action="mark-notifications-read" class="mt-3 rounded-xl bg-violet-700 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-800">Mark as read</button></div></div></section>`;
 }
 function render() {
+  resetOperationalDay();
   if (!state.currentUser) return;
   if (!canAccess(page)) page = state.currentUser.role === 'Admin' ? 'admin' : state.currentUser.role === 'Receptionist' ? 'kiosk' : 'overview';
   document.getElementById('pageKicker').textContent = pageTitle(page);
@@ -596,6 +611,7 @@ function setAvailability(user, next) {
   toast(`${user.name} is now ${unavailable ? 'unavailable; queue reassigned' : 'available for patients'}`);
 }
 function sessionToggle() {
+  resetOperationalDay();
   const user = currentUser();
   const active = activeSession(user.id);
   if (active) {
@@ -607,7 +623,7 @@ function sessionToggle() {
     const shift = user.shift || '08:00';
     const start = now();
     const lateMinutes = latenessMinutes(start, shift);
-    state.sessions.push({ userId: user.id, user: user.name, dept: user.dept, org: user.org, start, end: null, shift, lateMinutes });
+    state.sessions.push({ userId: user.id, user: user.name, dept: user.dept, org: user.org, day: today(), start, end: null, shift, lateMinutes });
     user.availability = 'available';
     rebalanceWaiting(user.dept);
     toast(lateMinutes ? `Session started; recorded ${lateMinutes} minutes late.` : 'Session started on time.');
