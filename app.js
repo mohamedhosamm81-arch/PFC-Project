@@ -9,6 +9,7 @@ const DESTINATIONS = [
   { key: 'Cashier', label: 'Cashier', ar: 'الخزينة', icon: 'wallet-cards', tone: 'slate' }
 ];
 const SCREEN_DESTINATIONS = [
+  { key: 'CMO', label: 'CMO', ar: 'الاستقبال', icon: 'stethoscope', tone: 'teal' },
   { key: 'FamilyOrganization', label: 'Family Organization', ar: 'تنظيم أسرة', icon: 'users-round', tone: 'teal' },
   { key: 'Vaccinations', label: 'Vaccinations', ar: 'تطعيمات', icon: 'syringe', tone: 'violet' },
   { key: 'CommercialPharmacy', label: 'Commercial Pharmacy', ar: 'صيدلية (تجاري)', icon: 'pill', tone: 'emerald' },
@@ -364,14 +365,14 @@ function kiosk() {
   const kioskClass = kioskFullscreen ? 'fixed inset-0 z-[100] bg-mist p-6 sm:p-8 overflow-y-auto' : 'fade max-w-6xl mx-auto';
   const destinationPanel = `<section class="bg-white border border-slate-100 rounded-3xl shadow-soft p-5 sm:p-7 ${kioskFullscreen ? 'max-w-6xl mx-auto' : ''}">
     <div class="flex items-center justify-between gap-3 mb-5">
-      <div><h2 class="font-bold text-2xl">Where would you like to go?</h2><p class="text-lg text-slate-500 mt-1">من فضلك اختر الوجهة التي تريد الذهاب إليها</p></div>
+      <div dir="rtl" class="text-right"><h2 class="font-bold text-2xl">من فضلك اختر الوجهة التي تريد الذهاب إليها</h2><p class="text-base text-slate-500 mt-1" dir="ltr">Where would you like to go?</p></div>
       <span class="live-badge">CHOOSE DESTINATION</span>
     </div>
     <div class="grid sm:grid-cols-2 ${kioskFullscreen ? 'xl:grid-cols-3' : ''} gap-4">
       ${kioskDestinations.map(item => `<button data-service="${item.key}" class="destination-button rounded-2xl p-6 text-left border border-slate-100 hover:border-teal/40 hover:-translate-y-0.5 transition">
         <div class="h-16 w-16 rounded-2xl ${toneClasses(item.tone)} flex items-center justify-center">${icon(item.icon, 'h-8 w-8')}</div>
         <div class="mt-6 flex items-end justify-between gap-3">
-          <div><h3 class="font-bold text-xl">${item.label}</h3><div class="text-lg text-slate-500 mt-1" dir="rtl">${item.ar}</div></div>
+          <div class="text-right" dir="rtl"><h3 class="font-bold text-xl">${item.ar}</h3><div class="text-base text-slate-500 mt-1" dir="ltr">${item.label}</div></div>
           ${icon('arrow-up-right', 'h-6 w-6 text-slate-400')}
         </div>
       </button>`).join('')}
