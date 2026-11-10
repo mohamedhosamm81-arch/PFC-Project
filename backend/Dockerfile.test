@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1.7
+# Dedicated test image: includes pytest and the SQLite async driver. It is used
+# by the `tests` profile in docker-compose.yml and is never deployed.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+COPY requirements.txt requirements-dev.txt ./
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r requirements-dev.txt
+
+COPY . .
+
+CMD ["python", "-m", "pytest", "-q"]

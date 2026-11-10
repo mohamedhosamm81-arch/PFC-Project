@@ -1,0 +1,9 @@
+-r requirements.txt
+
+# Test and quality tooling. The integration suite needs greenlet (pulled in by
+# SQLAlchemy[asyncio] on CPython 3.12) plus aiosqlite for the SQLite test database.
+pytest==9.2.0
+pytest-asyncio==1.4.1.post1
+httpx==0.28.1
+aiosqlite==0.22.1
+ruff>=0.8

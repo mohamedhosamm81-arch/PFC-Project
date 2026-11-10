@@ -1,0 +1,97 @@
+name: pfc
+
+services:
+  mysql_db:
+    image: mysql:8.0
+    container_name: pfc-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-pfc}
+      MYSQL_USER: ${MYSQL_USER:-pfc_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+      - --max-connections=300
+    volumes:
+      - mysql_data:/var/lib/mysql
+    # MySQL is deliberately not published to the LAN. Only the backend API is
+    # reachable; operators use `docker compose exec mysql_db mysql ...`.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - pfc_internal
+
+  tests:
+    profiles: ["test"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    environment:
+      APP_ENV: test
+      JWT_SECRET_KEY: pfc-test-secret-key-that-is-long-enough-1234567890
+      DATABASE_URL: sqlite+aiosqlite:///./.pytest-pfc.db
+      FACILITY_TIMEZONE: Africa/Cairo
+      ATTENDANCE_GRACE_MINUTES: "15"
+      DOCTOR_DAILY_SLOT_LIMIT: "20"
+      SEED_ADMIN_PASSWORD: TestAdmin123!
+      SEED_DEMO_PASSWORD: TestDemo123!
+    networks:
+      - pfc_internal
+
+  backend_api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pfc-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # DATABASE_URL comes from .env via env_file. Keep MYSQL_* and
+      # DATABASE_URL in sync there; see README for external databases.
+      PORT: "8000"
+    depends_on:
+      mysql_db:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Optional: persist local artefacts such as future exports.
+      - backend_var:/app/var
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    networks:
+      - pfc_internal
+
+volumes:
+  mysql_data:
+    name: pfc_mysql_data
+  backend_var:
+    name: pfc_backend_var
+
+networks:
+  pfc_internal:
+    name: pfc_internal
+    driver: bridge

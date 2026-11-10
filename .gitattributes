@@ -1,0 +1,6 @@
+* text=auto
+
+# Container entrypoints must keep LF endings even on Windows checkouts.
+*.sh text eol=lf
+Dockerfile text eol=lf
+Dockerfile.test text eol=lf
